@@ -25,7 +25,7 @@ def _rec(usg_id: str, hours_ago: float, model: str, cost_usd: float, key_id: str
         "input_tokens": 100, "output_tokens": 50, "reasoning_tokens": 10,
         "cache_read_tokens": 0, "cache_write_5m_tokens": 0, "cache_write_1h_tokens": 0,
         "cost_raw": 0, "cost_usd": cost_usd, "key_id": key_id, "session_id": "ses_x",
-        "plan": "lite",
+        "plan": "go",
     }
 
 

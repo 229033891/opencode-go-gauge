@@ -124,6 +124,10 @@
           <option value="idle" data-i18n="stIdle">未使用</option>
         </select>
         <button class="pill small active" id="qp-price-toggle" data-i18n="qpShowPrices">价格列</button>
+        <div class="pill-row" id="qp-scope" data-i18n-title="qpScopeHint" title="默认只统计 Go 套餐（product=go）用量">
+          <button class="pill small active" data-v="go" data-i18n="qpScopeGo">仅 Go 套餐</button>
+          <button class="pill small" data-v="all" data-i18n="qpScopeAll">全部产品线</button>
+        </div>
         <span class="hint" id="qp-count"></span>
       </div>
       <div class="card qp-card">

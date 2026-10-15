@@ -91,6 +91,69 @@ def test_build_model_quota_key_filter(isolated, monkeypatch):
     assert glm["windows"]["5h"]["cost_usd"] == pytest.approx(7.0)
 
 
+def test_products_filter_and_free_coefficient(isolated, monkeypatch):
+    """产品线过滤: 默认仅 go; 免费模型系数 0.1."""
+    monkeypatch.setattr(server, "_fetch_quota_with_cache", _fake_quota())
+    monkeypatch.setitem(server._quota_cache, 1, {"at": 0.0, "data": None})
+    monkeypatch.setattr(db, "get_token", lambda: "tok")
+    monkeypatch.setattr(db, "get_active_account_id", lambda: 1)
+    monkeypatch.setattr(db, "get_account_credentials", lambda aid: ("tok", "Default"))
+    fake_limits = {
+        "limits": {
+            "glm-5.3-flash": {"name": "GLM-5.3-Flash", "go": 60, "plus": 180,
+                              "price_input": 0.15, "price_output": 0.5,
+                              "price_cached_read": 0.03, "price_cached_write": None},
+            "step-5-preview-free": {"name": "Step 5 Preview Free", "go": None, "plus": None,
+                                    "unlimited": True, "price_input": 0.0, "price_output": 0.0,
+                                    "price_cached_read": 0.0, "price_cached_write": None},
+            "space-bunny": {"name": "Space Bunny", "go": 30, "plus": 120,
+                            "price_input": 0.15, "price_output": 0.6,
+                            "price_cached_read": 0.03, "price_cached_write": None},
+        },
+        "source": "test",
+        "fetched": "2026-10-15T00:00:00Z",
+    }
+    monkeypatch.setattr(server.limits, "load_limits", lambda force=False: dict(fake_limits))
+
+    paid = _rec("prod1", hours_ago=1.0, model="glm-5.3-flash", cost_usd=3.0, key_id="kid_a")
+    free = _rec("prod2", hours_ago=1.0, model="step-5-preview-free", cost_usd=0.0, key_id="kid_a")
+    paid["plan"] = "go"
+    free["plan"] = "standard"
+    db.insert_usage_records([paid, free])
+
+    # 默认 scope=go: 只统计 Go 套餐记录
+    quota_go = server._build_model_quota({})
+    assert quota_go["scope"] == "go"
+    models = {m["model"]: m for m in quota_go["models"]}
+    assert models["glm-5.3-flash"]["windows"]["5h"]["requests"] == 1
+    assert models["step-5-preview-free"]["status"] == "idle"
+    assert models["step-5-preview-free"]["coefficient"] == 0.1   # 免费模型系数
+
+    # scope=all: 免费记录也计入请求数
+    quota_all = server._build_model_quota({"scope": ["all"]})
+    assert quota_all["scope"] == "all"
+    models = {m["model"]: m for m in quota_all["models"]}
+    assert models["step-5-preview-free"]["windows"]["5h"]["requests"] == 1
+    assert models["step-5-preview-free"]["status"] == "ok"
+
+    # 未在官方额度表内的 -free 模型 (未知额度) 同样给 0.1 系数
+    unknown_free = _rec("prod3", hours_ago=1.0, model="nemotron-3-ultra-free", cost_usd=0.0)
+    unknown_free["plan"] = "standard"
+    db.insert_usage_records([unknown_free])
+    quota_all = server._build_model_quota({"scope": ["all"]})
+    rows = {m["model"]: m for m in quota_all["models"]}
+    assert rows["nemotron-3-ultra-free"]["coefficient"] == 0.1
+    assert rows["nemotron-3-ultra-free"]["limit_known"] is False
+
+    # -free 后缀优先判定为免费 (即便能宽松匹配到同族官方模型 space-bunny $30 -> 否则会是 x2)
+    free_variant = _rec("prod4", hours_ago=1.0, model="space-bunny-free", cost_usd=0.0)
+    free_variant["plan"] = "standard"
+    db.insert_usage_records([free_variant])
+    quota_all = server._build_model_quota({"scope": ["all"]})
+    rows = {m["model"]: m for m in quota_all["models"]}
+    assert rows["space-bunny-free"]["coefficient"] == 0.1
+
+
 def test_unused_official_models_listed(isolated, monkeypatch):
     """官方额度表中的模型即便本账号没用过也要出现在表尾, 状态 idle."""
     monkeypatch.setattr(server, "_fetch_quota_with_cache", _fake_quota())

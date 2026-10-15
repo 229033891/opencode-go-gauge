@@ -156,6 +156,11 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
     # key_ids: 逗号分隔; 空串/缺省 = 全部 (不筛 Key)
     raw_keys = (query.get("key_ids", [""])[0] or "").strip()
     key_ids = [p.strip() for p in raw_keys.split(",") if p.strip()] if raw_keys else []
+    # scope: go (仅 Go 套餐用量, 默认) / all (全部产品线, 含免费模型)
+    scope = (query.get("scope", ["go"])[0] or "go").lower()
+    if scope not in ("go", "all"):
+        scope = "go"
+    products = ["go"] if scope == "go" else None
 
     doc = limits.load_limits(force=refresh_limits)
     limit_map = doc.get("limits") or {}
@@ -168,11 +173,14 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
         quota = _fetch_quota_with_cache(aid, token, workspace_hint) or {}
     starts = _compute_window_starts(quota)
 
-    # 每窗口分模型用量 (5h/周/月), 按 Key 筛选 (空 = 全部)
+    # 每窗口分模型用量 (5h/周/月), 按 Key 与产品线筛选 (空 = 全部)
     keys_filter = key_ids or None
     usage: dict[str, dict[str, dict[str, Any]]] = {"5h": {}, "week": {}, "month": {}}
     for key, since in starts.items():
-        usage[key] = {r["model"]: r for r in db.model_stats_since(since, aid, key_ids=keys_filter)}
+        usage[key] = {
+            r["model"]: r
+            for r in db.model_stats_since(since, aid, key_ids=keys_filter, products=products)
+        }
 
     model_ids: list[str] = []
     for w in usage.values():
@@ -196,9 +204,14 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
         entry = limits.match_limit_row(limit_map, mid)
         monthly = limits.plan_limit(entry, plan)
         # 价格系数: 官方口径 额度消耗 = 可见费用 x (60 / 模型月额度)
+        # 免费模型优先判定: 请求端 -free 后缀, 或官方表中无月额度 (Unlimited) -> 0.1
         go_limit = (entry or {}).get("go")
-        coefficient = (round(60.0 / go_limit, 2)
-                       if isinstance(go_limit, (int, float)) and go_limit > 0 else None)
+        if "-free" in mid.lower() or (entry is not None and go_limit is None):
+            coefficient = 0.1
+        elif isinstance(go_limit, (int, float)) and go_limit > 0:
+            coefficient = round(60.0 / go_limit, 2)
+        else:
+            coefficient = None
         windows_out: dict[str, Any] = {}
         max_pct = 0.0
         total_req = 0
@@ -263,6 +276,7 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
 
     return {
         "plan": plan,
+        "scope": scope,
         "logged_in": bool(token),
         "quota_available": bool(quota.get("success")),
         "quota_error": (quota.get("error") if isinstance(quota, dict) else None),

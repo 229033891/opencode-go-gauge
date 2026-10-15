@@ -945,6 +945,7 @@ def model_stats_since(
     since_iso: Optional[str] = None,
     account_id: Optional[int] = None,
     key_ids: Optional[list[str]] = None,
+    products: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     """按模型聚合 (与 model_stats 口径一致), 但起点由调用方指定.
 
@@ -953,6 +954,8 @@ def model_stats_since(
         account_id: 归属账号, None -> 活跃账号
         key_ids: API Key 过滤 (模型额度规划页使用), None/[] = 不筛 (全部);
                  元素可为普通 key_id, 或哨兵 NONE_KEY_SENTINEL (未归属: key_id 为空)
+        products: 产品线过滤 (usage_records.plan, 控制台 product 字段), None/[] = 不筛;
+                  额度规划页传 ["go"] 时只统计 Go 套餐用量, 排除免费/其他产品线
     """
     aid = _resolve_account_id(account_id)
     clauses = ["account_id = ?"]
@@ -964,6 +967,11 @@ def model_stats_since(
     if key_sql:
         clauses.append(key_sql)
         params.extend(key_params)
+    if products:
+        clean = [p for p in dict.fromkeys((p or "").strip() for p in products) if p]
+        if clean:
+            clauses.append("plan IN (" + ",".join("?" * len(clean)) + ")")
+            params.extend(clean)
     rows = get_db().execute(
         f"""
         SELECT model,

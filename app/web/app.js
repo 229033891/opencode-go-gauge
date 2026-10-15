@@ -100,6 +100,8 @@ const I18N = {
     qpShowPrices: "价格列", qpSearchPlaceholder: "筛选模型…",
     qpStatusAll: "全部状态", qpStatusUsed: "仅有用量", qpCountShown: "显示 {shown}/{total} 个模型",
     qpFree: "免费", qpSortHint: "点击表头排序",
+    qpScopeGo: "仅 Go 套餐", qpScopeAll: "全部产品线", qpScopeLabel: "统计口径:",
+    qpScopeHint: "默认只统计 Go 套餐（product=go）用量；「全部产品线」会含免费模型等其它记录（费用多为 0，一般不影响占比）",
     qpAllKeys: "全部 Key", qpNoKey: "未归属",
     qpFilterHint: "用量按所选 Key 合计；额度仍为账户级（规划参考）",
     qpStatusNa: "不适用",
@@ -207,6 +209,8 @@ const I18N = {
     qpShowPrices: "Price columns", qpSearchPlaceholder: "Filter models…",
     qpStatusAll: "All statuses", qpStatusUsed: "Used only", qpCountShown: "Showing {shown}/{total} models",
     qpFree: "Free", qpSortHint: "Click a header to sort",
+    qpScopeGo: "Go plan only", qpScopeAll: "All products", qpScopeLabel: "Scope:",
+    qpScopeHint: "By default only Go-plan usage (product=go) is counted; \"All products\" includes free models and other records (usually $0, so percentages barely change)",
     qpAllKeys: "All keys", qpNoKey: "Unassigned",
     qpFilterHint: "Usage summed for selected keys; limits stay account-wide (planning only)",
     qpStatusNa: "N/A",
@@ -235,7 +239,7 @@ let state = {
   ovRetryTimer: null,
   records: { page: 1, pageSize: 7, total: 0, model: "" },
   sessions: { page: 1, pageSize: 7, total: 0 },
-  qp: { plan: "go", seq: 0, data: null, keyIds: [], showPrices: true, sort: { key: null, dir: "desc" }, filter: { text: "", status: "all" } },
+  qp: { plan: "go", scope: "go", seq: 0, data: null, keyIds: [], showPrices: true, sort: { key: null, dir: "desc" }, filter: { text: "", status: "all" } },
   settings: { sync_interval_sec: 300, window_days: 60, auto_sync: true },
 };
 
@@ -723,7 +727,7 @@ async function loadModelQuota(refresh = false) {
     let data = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       const requestedKeys = state.qp.keyIds.slice();
-      const q = new URLSearchParams({ plan: state.qp.plan });
+      const q = new URLSearchParams({ plan: state.qp.plan, scope: state.qp.scope });
       if (refresh && attempt === 0) q.set("refresh_limits", "1");
       if (requestedKeys.length) q.set("key_ids", requestedKeys.join(","));
       data = await api(`/api/model-quota?${q}`);
@@ -881,7 +885,7 @@ function renderModelQuota(data) {
     : (!data.quota_available && data.quota_error ? `${t("quotaFail")}: ${data.quota_error}` : "");
   $("qp-note").innerHTML = err
     ? `<div class="qp-warn-line">${escapeHtml(err)} · ${escapeHtml(t("qpNote"))}</div>`
-    : escapeHtml(t("qpNote"));
+    : `${escapeHtml(t("qpNote"))} · ${escapeHtml(t("qpScopeLabel") || "")}${escapeHtml(state.qp.scope === "go" ? t("qpScopeGo") : t("qpScopeAll"))}`;
   const table = document.querySelector(".qp-tbl");
   if (table) table.classList.toggle("show-prices", state.qp.showPrices !== false);
   const body = $("qp-body");
@@ -910,6 +914,9 @@ function renderModelQuota(data) {
     const statusHtml = keyFiltered
       ? `<span class="qp-badge b-na" title="${colTip}">${escapeHtml(t("qpStatusNa"))}</span>`
       : qpBadge(m.status);
+    const coefTxt = m.coefficient == null
+      ? "—"
+      : "×" + Number(m.coefficient.toFixed(2));  // 去尾零: 0.10 -> 0.1, 4.00 -> 4
     return `<tr${m.status === "idle" ? ' class="idle"' : ""}>
       <td><span class="model-cell">${modelIcon(m.model)}${escapeHtml(m.model)}</span></td>
       <td>${qpCell(m.windows["5h"], m, cellOpts)}</td>
@@ -921,7 +928,7 @@ function renderModelQuota(data) {
       <td class="num price-col">${qpFmtPrice(m.price_input)}</td>
       <td class="num price-col">${qpFmtPrice(m.price_output)}</td>
       <td class="num price-col">${qpFmtPrice(m.price_cached_read)}</td>
-      <td class="num price-col">${m.coefficient == null ? "—" : "×" + (Number.isInteger(m.coefficient) ? m.coefficient : m.coefficient.toFixed(2))}</td></tr>`;
+      <td class="num price-col">${coefTxt}</td></tr>`;
   }).join("");
 }
 
@@ -1595,6 +1602,13 @@ function bindEvents() {
     $("qp-price-toggle").classList.toggle("active", state.qp.showPrices !== false);
     if (state.qp.data) renderModelQuota(state.qp.data);
   });
+  // 口径: 仅 Go 套餐 / 全部产品线
+  document.querySelectorAll("#qp-scope .pill").forEach((b) => b.addEventListener("click", () => {
+    if (state.qp.scope === b.dataset.v) return;
+    state.qp.scope = b.dataset.v;
+    document.querySelectorAll("#qp-scope .pill").forEach((x) => x.classList.toggle("active", x === b));
+    loadModelQuota();
+  }));
 
   // 检查更新: 有新版 -> 弹窗 -> 打开浏览器前往 GitHub Releases 下载
   $("btn-check-update").addEventListener("click", async () => {
