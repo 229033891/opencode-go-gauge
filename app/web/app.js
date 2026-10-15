@@ -94,6 +94,7 @@ const I18N = {
     stOk: "富余", stWarn: "偏紧", stDanger: "注意额度",
     qpAllKeys: "全部 Key", qpNoKey: "未归属",
     qpFilterHint: "用量按所选 Key 合计；额度仍为账户级（规划参考）",
+    fullScreenOn: "已进入全屏，按 F11 退出", fullScreenOff: "已退出全屏",
   },
   en: {
     syncing: "Syncing", themeDark: "Dark", themeLight: "Light", refresh: "Refresh",
@@ -186,6 +187,7 @@ const I18N = {
     stOk: "Plenty", stWarn: "Tightening", stDanger: "Watch quota",
     qpAllKeys: "All keys", qpNoKey: "Unassigned",
     qpFilterHint: "Usage summed for selected keys; limits stay account-wide (planning only)",
+    fullScreenOn: "Fullscreen on — press F11 to exit", fullScreenOff: "Fullscreen off",
   },
 };
 let lang = "zh";
@@ -331,8 +333,22 @@ async function pywebviewApi() {
 }
 function bindTitlebar() {
   $("tb-min").addEventListener("click", async () => { const a = await pywebviewApi(); if (a) a.minimize(); });
+  $("tb-max").addEventListener("click", () => toggleMaximize());
   $("tb-close").addEventListener("click", async () => { const a = await pywebviewApi(); if (a) a.close(); });
   $("tb-theme").addEventListener("click", () => applyDarkMode(document.documentElement.dataset.theme !== "dark"));
+
+  // 双击标题栏 (按钮除外): 最大化/还原, Windows 惯例
+  document.querySelector(".tb").addEventListener("dblclick", (e) => {
+    if (e.target.closest("button, a")) return;
+    toggleMaximize();
+  });
+
+  // F11: 全屏切换
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "F11") return;
+    e.preventDefault();
+    toggleFullscreen();
+  });
 
   /* 标题栏拖动 (自实现, 替代 pywebview easy_drag):
      easy_drag 的 JS 用 clientX 记起点、screenX 算增量 (DPI 缩放下两坐标系
@@ -375,6 +391,39 @@ function bindTitlebar() {
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
     flushDrag();  // 释放残留增量, 避免窗口停在半路
   });
+
+  // 启动时同步一次最大化图标状态 (刷新/重载后恢复正确图标)
+  pywebviewApi().then((a) => {
+    if (a && a.is_maximized) a.is_maximized().then(setMaxIcon).catch(() => {});
+  });
+}
+
+/* ---------------- 最大化 / 全屏 ---------------- */
+const SVG_MAX = '<svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="0.8"/></svg>';
+const SVG_RESTORE = '<svg viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="6.2" height="6.2" rx="0.8"/><path d="M4 3.5V2.8c0-.7.5-1.3 1.2-1.3h4c.7 0 1.3.6 1.3 1.3v4c0 .7-.6 1.2-1.3 1.2h-.7"/></svg>';
+
+function setMaxIcon(maxed) {
+  const b = $("tb-max");
+  if (!b) return;
+  b.dataset.max = maxed ? "1" : "0";
+  b.innerHTML = maxed ? SVG_RESTORE : SVG_MAX;
+  b.title = maxed ? "Restore" : "Maximize";
+}
+
+async function toggleMaximize() {
+  const a = await pywebviewApi();
+  if (!a || !a.toggle_maximize) return;  // 浏览器环境无窗口 API
+  const maxed = await a.toggle_maximize();
+  setMaxIcon(maxed);
+  if (state.data) rerenderCharts();  // pywebview 不触发 window.resize, 显式重排图表
+}
+
+async function toggleFullscreen() {
+  const a = await pywebviewApi();
+  if (!a || !a.toggle_fullscreen) return;
+  const on = await a.toggle_fullscreen();
+  toast(on ? t("fullScreenOn") : t("fullScreenOff"));
+}
 }
 
 /* ---------------- 主题 / 货币 ---------------- */

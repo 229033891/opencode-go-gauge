@@ -29,6 +29,17 @@ class _RECT(ctypes.Structure):
                 ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
 
 
+class _WINDOWPLACEMENT(ctypes.Structure):
+    _fields_ = [
+        ("length", ctypes.c_uint),
+        ("flags", ctypes.c_uint),
+        ("showCmd", ctypes.c_uint),
+        ("ptMinPosition", ctypes.wintypes.POINT),
+        ("ptMaxPosition", ctypes.wintypes.POINT),
+        ("rcNormalPosition", _RECT),
+    ]
+
+
 def _screen_workarea_logical() -> tuple[int, int]:
     """主屏工作区尺寸(逻辑像素): 窗口初始尺寸不超工作区, 避免矮屏上底部被裁."""
     try:
@@ -261,19 +272,72 @@ def _ensure_single_instance() -> None:
 class WindowApi:
     """通过 js_api 暴露给前端的窗口控制 (自定义标题栏按钮).
 
-    最大化状态由前端维护 (frameless 窗口下用户只能通过按钮切换),
-    后端只执行窗口操作, 避免依赖可能不同步的窗口状态属性.
+    最大化/还原状态即时返回给前端 (frameless 无系统按钮, 前端据此切换图标);
+    全屏走 pywebview toggle_fullscreen (存在时), 仅本类维护 flip 状态.
     """
 
     def __init__(self) -> None:
         self._win = None
         self._on_open_login = None
+        self._fullscreen = False
 
     def bind(self, win) -> None:
         self._win = win
 
     def set_login_callback(self, cb) -> None:
         self._on_open_login = cb
+
+    def _hwnd(self) -> int:
+        try:
+            return int(self._win.native.Handle.ToInt32())
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def is_maximized(self) -> bool:
+        """窗口当前是否最大化 (GetWindowPlacement.showCmd == SW_SHOWMAXIMIZED)."""
+        hwnd = self._hwnd()
+        if not hwnd:
+            return False
+        try:
+            placement = _WINDOWPLACEMENT()
+            placement.length = ctypes.sizeof(_WINDOWPLACEMENT)
+            if ctypes.windll.user32.GetWindowPlacement(hwnd, ctypes.byref(placement)):
+                return placement.showCmd == 3  # SW_SHOWMAXIMIZED
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+    def toggle_maximize(self) -> bool:
+        """最大化/还原切换; 返回切换后的最大化状态."""
+        hwnd = self._hwnd()
+        if not hwnd:
+            return False
+        maximized = self.is_maximized()
+        try:
+            if not maximized:
+                # BorderStyle.None 窗口最大化会盖住任务栏, 先锚定到工作区
+                try:
+                    from System.Windows.Forms import Screen  # noqa: PLC0415  pythonnet
+                    self._win.native.MaximizedBounds = Screen.PrimaryScreen.WorkingArea
+                except Exception:  # noqa: BLE001
+                    pass
+            ctypes.windll.user32.ShowWindow(hwnd, 9 if maximized else 3)  # SW_RESTORE/SW_MAXIMIZE
+        except Exception:  # noqa: BLE001
+            return maximized
+        return not maximized
+
+    def toggle_fullscreen(self) -> bool:
+        """F11 全屏切换; 返回当前全屏状态."""
+        if not self._win:
+            return self._fullscreen
+        try:
+            fn = getattr(self._win, "toggle_fullscreen", None)
+            if callable(fn):
+                fn()
+                self._fullscreen = not self._fullscreen
+        except Exception:  # noqa: BLE001
+            pass
+        return self._fullscreen
 
     def open_login(self, mode: str = "relogin") -> bool:
         """前端登录入口: 弹出独立登录窗口. mode: "add"=添加新用户 / "relogin"=重登当前用户."""
@@ -300,9 +364,10 @@ class WindowApi:
         都基于最新位置.
         """
         try:
-            native = self._win.native
-            hwnd = int(native.Handle.ToInt32())
+            hwnd = int(self._win.native.Handle.ToInt32())
             with _move_lock:
+                if ctypes.windll.user32.IsZoomed(hwnd):  # 最大化状态拖动会造成窗口错位, 忽略
+                    return True
                 rect = _RECT()
                 ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
                 ctypes.windll.user32.SetWindowPos(

@@ -40,6 +40,7 @@
 - **Session history**: per-session aggregation of requests / input / output / reasoning / total tokens / cost, paginated
 - **Usage records**: request-level detail with pagination and model filtering
 - **Built-in WebView login**: independent login window opens the opencode.ai console sign-in page, auto-captures session & workspace — no manual copy-paste
+- **Window control**: custom titlebar with minimize / maximize / close, double-click titlebar to maximize, F11 fullscreen toggle
 - **Auto sync**: incremental sync (1/5/15/30 min) + sync range (30/60/90/180 days / All)
 - **Dual themes**: light / dark toggle; bilingual UI (中文 / English)
 - **Local-first**: all data stays in local SQLite; credentials are only used to sync official APIs
