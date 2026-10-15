@@ -428,7 +428,6 @@ async function toggleFullscreen() {
   const on = await a.toggle_fullscreen();
   toast(on ? t("fullScreenOn") : t("fullScreenOff"));
 }
-}
 
 /* ---------------- 主题 / 货币 ---------------- */
 function applyDarkMode(on) {
