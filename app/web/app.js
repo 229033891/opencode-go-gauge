@@ -97,6 +97,10 @@ const I18N = {
     qpStatusNa: "不适用",
     qpKeyFilterColTip: "已按 Key 筛选用量；月剩余与状态按账户额度计算会误导，故不显示",
     fullScreenOn: "已进入全屏，按 F11 退出", fullScreenOff: "已退出全屏",
+    navHome: "总览首页", navStats: "用量统计", navRecords: "使用记录",
+    navQuota: "模型额度规划", navOverview: "账户总览", navSettings: "设置", navAbout: "关于",
+    tbMinimize: "最小化", tbMaximize: "最大化", tbRestore: "还原", tbClose: "关闭",
+    themeToggle: "切换主题",
   },
   en: {
     syncing: "Syncing", themeDark: "Dark", themeLight: "Light", refresh: "Refresh",
@@ -192,6 +196,10 @@ const I18N = {
     qpStatusNa: "N/A",
     qpKeyFilterColTip: "Usage is filtered by key; month-left and status would mislead against account limits, so they are hidden",
     fullScreenOn: "Fullscreen on — press F11 to exit", fullScreenOff: "Fullscreen off",
+    navHome: "Home", navStats: "Usage Stats", navRecords: "Records",
+    navQuota: "Model Quota Planner", navOverview: "Accounts Overview", navSettings: "Settings", navAbout: "About",
+    tbMinimize: "Minimize", tbMaximize: "Maximize", tbRestore: "Restore", tbClose: "Close",
+    themeToggle: "Toggle theme",
   },
 };
 let lang = "zh";
@@ -287,6 +295,10 @@ function applyLang(l) {
   // 静态 data-i18n 文案
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     el.textContent = t(el.dataset.i18n);
+  });
+  // 静态 data-i18n-title 悬浮提示 (侧边栏/窗口按钮等)
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    el.title = t(el.dataset.i18nTitle);
   });
   document.querySelectorAll("#set-lang-pills .pill").forEach((b) => b.classList.toggle("active", b.dataset.v === lang));
   // 版本号: 唯一来源为后端 /api/version (app/__init__.py), 前端动态获取
@@ -411,7 +423,7 @@ function setMaxIcon(maxed) {
   if (!b) return;
   b.dataset.max = maxed ? "1" : "0";
   b.innerHTML = maxed ? SVG_RESTORE : SVG_MAX;
-  b.title = maxed ? "Restore" : "Maximize";
+  b.title = maxed ? t("tbRestore") : t("tbMaximize");
 }
 
 async function toggleMaximize() {
