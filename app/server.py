@@ -889,6 +889,7 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
 
 class _Handler(BaseHTTPRequestHandler):
     server_version = "GoGauge/1.0"
+    protocol_version = "HTTP/1.1"  # keep-alive: Content-Length 均已携带, 避免浏览器并发首请求被误断
 
     def log_message(self, fmt: str, *args: Any) -> None:  # 静默日志
         pass
