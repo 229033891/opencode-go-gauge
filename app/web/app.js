@@ -94,6 +94,8 @@ const I18N = {
     stOk: "富余", stWarn: "偏紧", stDanger: "注意额度",
     qpAllKeys: "全部 Key", qpNoKey: "未归属",
     qpFilterHint: "用量按所选 Key 合计；额度仍为账户级（规划参考）",
+    qpStatusNa: "不适用",
+    qpKeyFilterColTip: "已按 Key 筛选用量；月剩余与状态按账户额度计算会误导，故不显示",
     fullScreenOn: "已进入全屏，按 F11 退出", fullScreenOff: "已退出全屏",
   },
   en: {
@@ -187,6 +189,8 @@ const I18N = {
     stOk: "Plenty", stWarn: "Tightening", stDanger: "Watch quota",
     qpAllKeys: "All keys", qpNoKey: "Unassigned",
     qpFilterHint: "Usage summed for selected keys; limits stay account-wide (planning only)",
+    qpStatusNa: "N/A",
+    qpKeyFilterColTip: "Usage is filtered by key; month-left and status would mislead against account limits, so they are hidden",
     fullScreenOn: "Fullscreen on — press F11 to exit", fullScreenOff: "Fullscreen off",
   },
 };
@@ -684,15 +688,24 @@ async function loadModelQuota(refresh = false) {
   const btn = $("qp-refresh");
   if (refresh && btn) { btn.disabled = true; btn.textContent = t("syncing") + "…"; }
   try {
-    const q = new URLSearchParams({ plan: state.qp.plan });
-    if (refresh) q.set("refresh_limits", "1");
-    if (state.qp.keyIds.length) q.set("key_ids", state.qp.keyIds.join(","));
-    const data = await api(`/api/model-quota?${q}`);
-    if (seq !== state.qp.seq) return;
+    // 最多两轮: 若响应裁掉了已失效的 keyIds, 用修正后的筛选再拉一次, 避免 pill=全部 但表仍是空过滤结果
+    let data = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const requestedKeys = state.qp.keyIds.slice();
+      const q = new URLSearchParams({ plan: state.qp.plan });
+      if (refresh && attempt === 0) q.set("refresh_limits", "1");
+      if (requestedKeys.length) q.set("key_ids", requestedKeys.join(","));
+      data = await api(`/api/model-quota?${q}`);
+      if (seq !== state.qp.seq) return;
+      const valid = new Set((data.filter?.keys || []).map((k) => k.id));
+      const pruned = requestedKeys.filter((id) => valid.has(id));
+      const changed = pruned.length !== requestedKeys.length;
+      state.qp.keyIds = pruned;
+      if (changed && attempt === 0) continue;
+      break;
+    }
+    if (seq !== state.qp.seq || !data) return;
     state.qp.data = data;
-    // 丢弃已不在 Key 目录里的选择 (Key 被删光等), 必要时回退「全部」
-    const valid = new Set((data.filter?.keys || []).map((k) => k.id));
-    state.qp.keyIds = state.qp.keyIds.filter((id) => valid.has(id));
     renderKeyPills(data.filter?.keys || []);
     renderModelQuota(data);
     if (refresh) toast(t("qpRefreshDone"));
@@ -748,13 +761,14 @@ function qpFilterSummary() {
   return ids.length > 2 ? `${head} … (${ids.length})` : `${head} (${ids.length})`;
 }
 
-function qpCell(w, row) {
+function qpCell(w, row, { muteAlarm = false } = {}) {
   if (!row || !row.limit_known) {
     return `<div class="qp-cell"><span class="qp-val">${fmtMoney(w ? w.cost_usd : 0)} / ${t("qpUnknown")}</span></div>`;
   }
   const unlimited = row.monthly_limit_usd == null;  // 已知但为无限额 (免费模型)
   const pct = w ? w.pct : null;
-  const lvl = pct == null ? "" : (pct >= 80 ? " danger" : pct >= 50 ? " warn" : "");
+  // 筛 Key 时仍展示用量占比作参考, 但不标红/黄 (额度是账户级)
+  const lvl = (muteAlarm || pct == null) ? "" : (pct >= 80 ? " danger" : pct >= 50 ? " warn" : "");
   const usedTxt = fmtMoney(w ? w.cost_usd : 0);
   const limTxt = unlimited ? "∞" : (w && w.limit_usd != null ? fmtMoney(w.limit_usd) : "—");
   const barW = pct == null ? 0 : Math.min(100, pct);
@@ -786,17 +800,26 @@ function renderModelQuota(data) {
     body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">${t("noData")}</td></tr>`;
     return;
   }
+  // 筛 Key 时月剩余/状态相对账户额度会误导, 改为「不适用」
+  const keyFiltered = (data.filter?.key_ids || []).length > 0;
+  const colTip = escapeHtml(t("qpKeyFilterColTip"));
+  const cellOpts = { muteAlarm: keyFiltered };
   body.innerHTML = data.models.map((m) => {
     const limTxt = !m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.monthly_limit_usd));
-    const remTxt = !m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.remaining_month_usd));
+    const remTxt = keyFiltered
+      ? `<span class="qp-na" title="${colTip}">—</span>`
+      : (!m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.remaining_month_usd)));
+    const statusHtml = keyFiltered
+      ? `<span class="qp-badge b-na" title="${colTip}">${escapeHtml(t("qpStatusNa"))}</span>`
+      : qpBadge(m.status);
     return `<tr>
       <td><span class="model-cell">${modelIcon(m.model)}${escapeHtml(m.model)}</span></td>
-      <td>${qpCell(m.windows["5h"], m)}</td>
-      <td>${qpCell(m.windows["week"], m)}</td>
-      <td>${qpCell(m.windows["month"], m)}</td>
+      <td>${qpCell(m.windows["5h"], m, cellOpts)}</td>
+      <td>${qpCell(m.windows["week"], m, cellOpts)}</td>
+      <td>${qpCell(m.windows["month"], m, cellOpts)}</td>
       <td class="num">${limTxt}</td>
       <td class="num">${remTxt}</td>
-      <td>${qpBadge(m.status)}</td></tr>`;
+      <td>${statusHtml}</td></tr>`;
   }).join("");
 }
 

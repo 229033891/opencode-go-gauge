@@ -426,5 +426,7 @@ html[data-theme="dark"] .skeleton::after { background: linear-gradient(90deg, tr
 .qp-badge.b-ok { background: rgba(34, 197, 94, .14); color: var(--green); }
 .qp-badge.b-warn { background: rgba(217, 119, 6, .14); color: var(--amber); }
 .qp-badge.b-danger { background: rgba(239, 68, 68, .15); color: var(--red); }
+.qp-badge.b-na { background: rgba(148, 163, 184, .14); color: var(--text3); }
+.qp-na { color: var(--text3); cursor: help; }
 .qp-warn-line { color: var(--amber); }
 .qp-note { padding: 10px 14px 12px; font-size: 11px; line-height: 1.6; color: var(--text3); }
