@@ -153,6 +153,10 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
     if plan not in ("go", "plus"):
         plan = "go"
     refresh_limits = (query.get("refresh_limits", ["0"])[0] or "0") == "1"
+    # key_ids: 逗号分隔; 空串/缺省 = 全部 (不筛 Key)
+    raw_keys = (query.get("key_ids", [""])[0] or "").strip()
+    key_ids = [p.strip() for p in raw_keys.split(",") if p.strip()] if raw_keys else []
+
     doc = limits.load_limits(force=refresh_limits)
     limit_map = doc.get("limits") or {}
 
@@ -164,10 +168,11 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
         quota = _fetch_quota_with_cache(aid, token, workspace_hint) or {}
     starts = _compute_window_starts(quota)
 
-    # 每窗口分模型用量 (5h/周/月)
+    # 每窗口分模型用量 (5h/周/月), 按 Key 筛选 (空 = 全部)
+    keys_filter = key_ids or None
     usage: dict[str, dict[str, dict[str, Any]]] = {"5h": {}, "week": {}, "month": {}}
     for key, since in starts.items():
-        usage[key] = {r["model"]: r for r in db.model_stats_since(since, aid)}
+        usage[key] = {r["model"]: r for r in db.model_stats_since(since, aid, key_ids=keys_filter)}
 
     model_ids: list[str] = []
     for w in usage.values():
@@ -219,6 +224,17 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
     rank = {"danger": 0, "warn": 1, "ok": 2}
     rows.sort(key=lambda r: (rank[r["status"]], -r["windows"]["month"]["cost_usd"]))
 
+    # Key 目录 (账户历史出现过的 Key, 与时间窗无关; 未归属哨兵放最后)
+    listed = db.list_usage_key_ids(aid) if aid else {"keys": [], "has_unassigned": False}
+    names = db.get_key_names()
+    filter_keys = [
+        {"id": kid, "name": _display_key_name(kid, names)}
+        for kid in listed["keys"]
+    ]
+    filter_keys.sort(key=lambda x: (x["name"].lower(), x["id"]))
+    if listed.get("has_unassigned"):
+        filter_keys.append({"id": db.NONE_KEY_SENTINEL, "name": "未归属"})
+
     return {
         "plan": plan,
         "logged_in": bool(token),
@@ -227,19 +243,26 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
         "window_starts": starts,
         "limits_source": doc.get("source"),
         "limits_fetched": doc.get("fetched") or doc.get("asof"),
+        "filter": {"key_ids": key_ids, "keys": filter_keys},
+        "note": ("usage_filtered_by_keys_limits_account_wide" if key_ids
+                 else "usage_limits_account_wide"),
         "models": rows,
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    with _sync_lock:
-        _sync_state["phase"] = phase
-        _sync_state["message"] = message
-        _sync_state["running"] = phase in ("quota", "usage")
+
+
+def _display_key_name(kid: str, names: dict[str, str]) -> str:
+    """Key 显示名: 优先 keys 页同步的缓存名, 否则短尾号."""
+    cached = (names or {}).get(kid)
+    if cached:
+        return cached
+    kid = str(kid or "")
+    return ("…" + kid[-8:]) if len(kid) > 8 else kid
 
 
 # ---------------------------------------------------------------------------
 # 同步执行
 # ---------------------------------------------------------------------------
-
 
 def _fetch_quota_with_cache(account_id: int, token: str, workspace_hint: str) -> dict[str, Any]:
     slot = _quota_cache.setdefault(account_id, {"at": 0.0, "data": None})

@@ -33,7 +33,7 @@
 ## ✨ Features
 
 - **Quota monitoring**: 5h rolling / weekly / monthly windows with progress bars, remaining % and reset countdown
-- **Model quota planner**: per-model 5h / weekly / monthly spend vs official monthly limits (Go / Go Plus), with usage share and status badges — plan model switches before quotas run out
+- **Model quota planner**: per-model 5h / weekly / monthly spend vs official monthly limits (Go / Go Plus), with usage share and status badges — plan model switches before quotas run out; optional per-API-Key filtering with multi-select totals and unassigned requests
 - **Usage overview**: cache hit rate / hit amount / total tokens (incl. cache hits) / requests / cost / sessions
 - **Today's trend**: 24-hour input / output bar chart
 - **Usage stats**: token breakdown (input / output / reasoning / cache read / cache write / sessions), model usage donut + ranking, cost / requests / total tokens triple-line trend

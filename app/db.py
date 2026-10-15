@@ -906,23 +906,64 @@ def model_stats(period: str = "30d", account_id: Optional[int] = None) -> list[d
     return result
 
 
+NONE_KEY_SENTINEL = "__none__"  # 模型额度规划页: 未归属 (key_id 为空) 的哨兵 id
+
+
+def _key_filter_sql(key_ids: Optional[list[str]]) -> tuple[str, list[Any]]:
+    """API Key 过滤 → (括号包裹的 OR 条件, 参数). key_ids 为空时返回 ("", []).
+
+    哨兵 NONE_KEY_SENTINEL 表示未归属请求 (key_id 为 NULL/''), 与会话页语义一致.
+    """
+    if not key_ids:
+        return "", []
+    real: list[str] = []
+    want_none = False
+    seen: set[str] = set()
+    for k in key_ids:
+        k = (k or "").strip()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        if k == NONE_KEY_SENTINEL:
+            want_none = True
+        else:
+            real.append(k)
+    parts: list[str] = []
+    params: list[Any] = []
+    if real:
+        placeholders = ",".join("?" * len(real))
+        parts.append(f"key_id IN ({placeholders})")
+        params.extend(real)
+    if want_none:
+        parts.append("(key_id IS NULL OR key_id = '')")
+    if not parts:
+        return "", []
+    return "(" + " OR ".join(parts) + ")", params
+
+
 def model_stats_since(
     since_iso: Optional[str] = None,
     account_id: Optional[int] = None,
+    key_ids: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     """按模型聚合 (与 model_stats 口径一致), 但起点由调用方指定.
 
     Args:
         since_iso: ISO 时间 (含 Z), None 表示不限制起点 (= model_stats("30d") 口径不同, 这是不限时间)
         account_id: 归属账号, None -> 活跃账号
-    用于官方额度窗口 (5h/周/月) 的分模型用量统计.
+        key_ids: API Key 过滤 (模型额度规划页使用), None/[] = 不筛 (全部);
+                 元素可为普通 key_id, 或哨兵 NONE_KEY_SENTINEL (未归属: key_id 为空)
     """
     aid = _resolve_account_id(account_id)
+    clauses = ["account_id = ?"]
     params: list[Any] = [aid]
-    since_clause = ""
     if since_iso:
-        since_clause = "AND datetime(created_at) >= datetime(?)"
-        params.append(since_iso)  # 与 SQL 中 account_id = ? 之后的第2个占位符对应
+        clauses.append("datetime(created_at) >= datetime(?)")
+        params.append(since_iso)
+    key_sql, key_params = _key_filter_sql(key_ids)
+    if key_sql:
+        clauses.append(key_sql)
+        params.extend(key_params)
     rows = get_db().execute(
         f"""
         SELECT model,
@@ -936,7 +977,7 @@ def model_stats_since(
                SUM(output_tokens) AS total_output_tokens,
                SUM(cost_usd) AS total_cost_usd
         FROM usage_records
-        WHERE account_id = ? {since_clause}
+        WHERE {" AND ".join(clauses)}
         GROUP BY model
         ORDER BY (SUM(input_tokens + cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens)
                   + SUM(output_tokens)) DESC
@@ -964,6 +1005,33 @@ def model_stats_since(
             }
         )
     return result
+
+
+def list_usage_key_ids(account_id: Optional[int] = None) -> dict[str, Any]:
+    """本账号历史出现过的 API Key 目录 (配额页 pills 用).
+
+    返回 {"keys": [key_id...], "has_unassigned": bool}; key 列表与当次时间窗无关.
+    """
+    aid = _resolve_account_id(account_id)
+    if not aid:
+        return {"keys": [], "has_unassigned": False}
+    conn = get_db()
+    keys = [
+        r["key_id"]
+        for r in conn.execute(
+            """SELECT DISTINCT key_id FROM usage_records
+               WHERE account_id = ? AND key_id IS NOT NULL AND key_id != ''
+               ORDER BY key_id""",
+            (aid,),
+        ).fetchall()
+    ]
+    has_unassigned = conn.execute(
+        """SELECT 1 FROM usage_records
+           WHERE account_id = ? AND (key_id IS NULL OR key_id = '')
+           LIMIT 1""",
+        (aid,),
+    ).fetchone() is not None
+    return {"keys": keys, "has_unassigned": has_unassigned}
 
 
 def daily_stats(days: int = 30, account_id: Optional[int] = None) -> list[dict[str, Any]]:

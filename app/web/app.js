@@ -92,6 +92,8 @@ const I18N = {
       "口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量按控制台请求明细（本机同步库，官方仅保留 30 天明细）统计。百分比仅供规划参考，总额度窗口以上方仪表为准。",
     qpUnlimited: "无限", qpUnknown: "未知",
     stOk: "富余", stWarn: "偏紧", stDanger: "注意额度",
+    qpAllKeys: "全部 Key", qpNoKey: "未归属",
+    qpFilterHint: "用量按所选 Key 合计；额度仍为账户级（规划参考）",
   },
   en: {
     syncing: "Syncing", themeDark: "Dark", themeLight: "Light", refresh: "Refresh",
@@ -182,6 +184,8 @@ const I18N = {
       "Basis: official monthly limits per model from opencode.ai docs; 5-hour = 20% and weekly = 50% of it. Usage comes from console request logs (local sync, 30-day retention on the server). Percentages are for planning; the total windows above remain authoritative.",
     qpUnlimited: "Unlimited", qpUnknown: "Unknown",
     stOk: "Plenty", stWarn: "Tightening", stDanger: "Watch quota",
+    qpAllKeys: "All keys", qpNoKey: "Unassigned",
+    qpFilterHint: "Usage summed for selected keys; limits stay account-wide (planning only)",
   },
 };
 let lang = "zh";
@@ -201,7 +205,7 @@ let state = {
   ovRetryTimer: null,
   records: { page: 1, pageSize: 7, total: 0, model: "" },
   sessions: { page: 1, pageSize: 7, total: 0 },
-  qp: { plan: "go", seq: 0, data: null },
+  qp: { plan: "go", seq: 0, data: null, keyIds: [] },
   settings: { sync_interval_sec: 300, window_days: 60, auto_sync: true },
 };
 
@@ -633,9 +637,14 @@ async function loadModelQuota(refresh = false) {
   try {
     const q = new URLSearchParams({ plan: state.qp.plan });
     if (refresh) q.set("refresh_limits", "1");
+    if (state.qp.keyIds.length) q.set("key_ids", state.qp.keyIds.join(","));
     const data = await api(`/api/model-quota?${q}`);
     if (seq !== state.qp.seq) return;
     state.qp.data = data;
+    // 丢弃已不在 Key 目录里的选择 (Key 被删光等), 必要时回退「全部」
+    const valid = new Set((data.filter?.keys || []).map((k) => k.id));
+    state.qp.keyIds = state.qp.keyIds.filter((id) => valid.has(id));
+    renderKeyPills(data.filter?.keys || []);
     renderModelQuota(data);
     if (refresh) toast(t("qpRefreshDone"));
   } catch (e) {
@@ -648,6 +657,46 @@ async function loadModelQuota(refresh = false) {
   } finally {
     if (refresh && btn) { btn.disabled = false; btn.textContent = t("qpRefreshLimits"); }
   }
+}
+
+function renderKeyPills(keys) {
+  const row = $("qp-keys");
+  if (!row) return;
+  const allActive = state.qp.keyIds.length === 0 ? " active" : "";
+  let html = `<button class="pill${allActive}" data-v="">${t("qpAllKeys")}</button>`;
+  for (const k of keys) {
+    const label = k.id === "__none__" ? t("qpNoKey") : k.name;
+    const on = state.qp.keyIds.includes(k.id) ? " active" : "";
+    html += `<button class="pill${on}" data-v="${escapeHtml(k.id)}" title="${escapeHtml(k.id)}">${escapeHtml(label)}</button>`;
+  }
+  row.innerHTML = html;
+  row.querySelectorAll(".pill").forEach((b) => b.addEventListener("click", () => onKeyPillClick(b.dataset.v)));
+}
+
+function onKeyPillClick(id) {
+  // id === "" 表示「全部」
+  if (!id) {
+    if (state.qp.keyIds.length === 0) return;  // 已是全部
+    state.qp.keyIds = [];
+  } else if (state.qp.keyIds.includes(id)) {
+    state.qp.keyIds = state.qp.keyIds.filter((x) => x !== id);  // 删空即回到「全部」语义
+  } else {
+    state.qp.keyIds = [...state.qp.keyIds, id];
+  }
+  loadModelQuota();
+}
+
+function qpFilterSummary() {
+  const ids = state.qp.keyIds;
+  if (!ids.length) return t("qpAllKeys");
+  const nameOf = (id) => {
+    if (id === "__none__") return t("qpNoKey");
+    const hit = (state.qp.data?.filter?.keys || []).find((k) => k.id === id);
+    return hit?.name || id;
+  };
+  if (ids.length === 1) return nameOf(ids[0]);
+  const head = ids.slice(0, 2).map(nameOf).join(" + ");
+  return ids.length > 2 ? `${head} … (${ids.length})` : `${head} (${ids.length})`;
 }
 
 function qpCell(w, row) {
@@ -676,7 +725,7 @@ function renderModelQuota(data) {
   if (!data) return;
   const meta = $("qp-meta");
   const src = String(data.limits_source || "").replace(/\(.*?\)\s*$/, "").trim();
-  meta.textContent = `${t("qpLimitSource")} ${src} · ${data.limits_fetched || "—"}`;
+  meta.textContent = `${t("qpLimitSource")} ${src} · ${data.limits_fetched || "—"} · ${qpFilterSummary()}`;
   const err = !data.logged_in
     ? t("qpNotLoggedIn")
     : (!data.quota_available && data.quota_error ? `${t("quotaFail")}: ${data.quota_error}` : "");

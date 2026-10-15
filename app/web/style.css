@@ -408,6 +408,9 @@ html[data-theme="dark"] .skeleton::after { background: linear-gradient(90deg, tr
 
 /* ---- 模型额度规划 (Model Quota Planner) ---- */
 .qp-card { margin-top: 2px; }
+.qp-key-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 2px 10px; }
+.qp-key-bar .hint { font-size: 12px; color: var(--text3); }
+.qp-key-bar .pill-row { display: flex; margin: 0; }
 .qp-tbl .qp-cell { min-width: 130px; }
 .qp-cell { display: flex; flex-direction: column; gap: 3px; }
 .qp-cell .qp-val { font-size: 12px; color: var(--text2); white-space: nowrap; font-variant-numeric: tabular-nums; }

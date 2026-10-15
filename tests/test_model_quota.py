@@ -17,14 +17,14 @@ def isolated(tmp_path, monkeypatch):
     db.close_db()
 
 
-def _rec(usg_id: str, hours_ago: float, model: str, cost_usd: float) -> dict:
+def _rec(usg_id: str, hours_ago: float, model: str, cost_usd: float, key_id: str = "key_1") -> dict:
     dt = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
     created = dt.isoformat().replace("+00:00", "Z")
     return {
         "usg_id": usg_id, "created_at": created, "model": model, "provider": "opencode-go",
         "input_tokens": 100, "output_tokens": 50, "reasoning_tokens": 10,
         "cache_read_tokens": 0, "cache_write_5m_tokens": 0, "cache_write_1h_tokens": 0,
-        "cost_raw": 0, "cost_usd": cost_usd, "key_id": "key_1", "session_id": "ses_x",
+        "cost_raw": 0, "cost_usd": cost_usd, "key_id": key_id, "session_id": "ses_x",
         "plan": "lite",
     }
 
