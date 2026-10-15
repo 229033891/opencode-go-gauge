@@ -98,7 +98,7 @@ Python · pywebview (WebView2) · SQLite · Chart.js · pystray
 
 ## 📬 Contact
 
-- GitHub: [yphyphyph/opencode-go-gauge](https://github.com/yphyphyph/opencode-go-gauge)
+- GitHub: [229033891/opencode-go-gauge](https://github.com/229033891/opencode-go-gauge)
 - CSDN: [Ying_ph](https://blog.csdn.net/Ying_ph)
 
 ## 📄 License
