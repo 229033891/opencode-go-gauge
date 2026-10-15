@@ -76,7 +76,14 @@ build.bat
 
 Output: `dist\GoGauge.exe` (~38 MB, --noconsole, logo icon included).
 
-CI: push a `v*` tag (or run **Build & Release** manually in Actions) builds on `windows-latest` and attaches `GoGauge.exe` to the [Release](../../releases).
+CI: push the **`release`** branch (or a `v*` tag / run **Build & Release** manually) builds on `windows-latest`, creates/updates a [Release](../../releases) from `app.__version__`, and attaches `GoGauge.exe`.
+
+```bash
+# Ship example: merge main into release and push
+git checkout release
+git merge main
+git push origin release
+```
 
 ## 📊 Data Notes
 

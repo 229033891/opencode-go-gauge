@@ -76,7 +76,14 @@ build.bat
 
 输出 `dist\GoGauge.exe`（约 38 MB，--noconsole 无黑窗，含 logo 图标）。
 
-CI：推送 `v*` 标签（或 Actions 里手动 **Build & Release**）会在 `windows-latest` 上自动打包，并把 `GoGauge.exe` 挂到对应 [Release](../../releases)。
+CI：推送 **`release` 分支**（或 `v*` 标签 / Actions 手动 **Build & Release**）会在 `windows-latest` 上自动打包，按 `app.__version__` 创建/更新 [Release](../../releases) 并挂上 `GoGauge.exe`。
+
+```bash
+# 发版示例：把 main 合到 release 并推送
+git checkout release
+git merge main
+git push origin release
+```
 
 ## 📊 数据说明
 
