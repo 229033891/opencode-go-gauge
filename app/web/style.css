@@ -404,3 +404,24 @@ html[data-theme="dark"] .skeleton::after { background: linear-gradient(90deg, tr
 .ur-ws { font-size: 11.5px; color: var(--text3); margin-top: 0; word-break: break-all; line-height: 1.35; }
 .ur-actions { display: flex; gap: 6px; flex-shrink: 0; }
 #rename-input { width: 100%; margin-top: 4px; }
+
+
+/* ---- 模型额度规划 (Model Quota Planner) ---- */
+.qp-card { margin-top: 2px; }
+.qp-tbl .qp-cell { min-width: 130px; }
+.qp-cell { display: flex; flex-direction: column; gap: 3px; }
+.qp-cell .qp-val { font-size: 12px; color: var(--text2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.qp-bar { height: 4px; border-radius: 3px; background: var(--grid); overflow: hidden; width: 100%; max-width: 130px; }
+.qp-bar i { display: block; height: 100%; border-radius: 3px; background: var(--green); transition: width .3s ease; }
+.qp-cell.warn .qp-bar i { background: var(--amber); }
+.qp-cell.danger .qp-bar i { background: var(--red); }
+.qp-pct { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.qp-cell.warn .qp-pct { color: var(--amber); }
+.qp-cell.danger .qp-pct { color: var(--red); }
+.qp-cell.warn .qp-val, .qp-cell.danger .qp-val { color: var(--text); }
+.qp-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; line-height: 1.4; white-space: nowrap; }
+.qp-badge.b-ok { background: rgba(34, 197, 94, .14); color: var(--green); }
+.qp-badge.b-warn { background: rgba(217, 119, 6, .14); color: var(--amber); }
+.qp-badge.b-danger { background: rgba(239, 68, 68, .15); color: var(--red); }
+.qp-warn-line { color: var(--amber); }
+.qp-note { padding: 10px 14px 12px; font-size: 11px; line-height: 1.6; color: var(--text3); }

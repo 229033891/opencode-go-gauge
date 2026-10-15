@@ -33,6 +33,7 @@
 ## ✨ Features
 
 - **Quota monitoring**: 5h rolling / weekly / monthly windows with progress bars, remaining % and reset countdown
+- **Model quota planner**: per-model 5h / weekly / monthly spend vs official monthly limits (Go / Go Plus), with usage share and status badges — plan model switches before quotas run out
 - **Usage overview**: cache hit rate / hit amount / total tokens (incl. cache hits) / requests / cost / sessions
 - **Today's trend**: 24-hour input / output bar chart
 - **Usage stats**: token breakdown (input / output / reasoning / cache read / cache write / sessions), model usage donut + ranking, cost / requests / total tokens triple-line trend
@@ -75,6 +76,7 @@ Output: `dist\GoGauge.exe` (~38 MB, --noconsole, logo icon included).
 ## 📊 Data Notes
 
 - **Source**: opencode.ai console API (`/console/api`) — `go/status` quota + `request-logs` usage detail + `service-accounts` key names
+- **Official per-model limits**: parsed at runtime from the opencode.ai docs limit table (cached locally with an embedded snapshot fallback); monthly limits per model for Go / Go Plus — 5-hour = 20% and weekly = 50% of it; percentages are for planning only, the accounting applies per-model multipliers and `go/status` remains authoritative
 - **Total tokens** = input (incl. cache hits) + output + reasoning
 - **Cache hit rate** = hits / (hits + misses)
 - **Cost**: raw USD; CNY converted via open.er-api.com live FX rate (24h cache)

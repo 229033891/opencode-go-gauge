@@ -74,6 +74,7 @@ class QuotaWindow:
     unit: str
     reset_at: str  # ISO
     reset_in_sec: int
+    starts_at: str = ""  # 窗口起点 ISO (接口提供时才有, 用于精确对齐分模型统计)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +85,7 @@ class QuotaWindow:
             "unit": self.unit,
             "reset_at": self.reset_at,
             "reset_in_sec": self.reset_in_sec,
+            "starts_at": self.starts_at,
         }
 
 
@@ -432,6 +434,7 @@ def parse_go_status(payload: Any, now: Optional[datetime] = None) -> list[QuotaW
                 unit="%",
                 reset_at=reset_at,
                 reset_in_sec=_seconds_until(reset_at, now),
+                starts_at=_iso_from_text(meter.get("startsAt")),
             )
         )
     return windows

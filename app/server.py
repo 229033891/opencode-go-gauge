@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, db
+from . import __version__, db, limits
 from .updater import RELEASE_PAGE_URL, check_update
 from .opencode_api import (
     AuthError,
@@ -88,6 +88,148 @@ def _sync_progress_snapshot() -> dict[str, Any]:
 
 
 def _set_phase(phase: str, message: str = "") -> None:
+    with _sync_lock:
+        _sync_state["phase"] = phase
+        _sync_state["message"] = message
+        _sync_state["running"] = phase in ("quota", "usage")
+
+
+# ---------------------------------------------------------------------------
+# 分模型额度规划 (/api/model-quota)
+# ---------------------------------------------------------------------------
+
+_WINDOW_DEFS = (
+    # (窗口 key, 期限秒, 官方额度占比)
+    ("5h", 5 * 3600, 0.20),
+    ("week", 7 * 24 * 3600, 0.50),
+    ("month", 30 * 24 * 3600, 1.00),
+)
+_LABEL2KEY = {"5h Rolling": "5h", "Weekly": "week", "Monthly": "month"}
+
+
+def _compute_window_starts(quota: dict[str, Any]) -> dict[str, Optional[str]]:
+    """每个额度窗口的统计起点 (ISO 或 None=不限).
+
+    优先用接口 meter.startsAt, 其次 resetAt 减去固定时长;
+    新订阅 (起点在未来) 回退为不限.
+    """
+    now = datetime.now(timezone.utc)
+    starts: dict[str, Optional[str]] = {"5h": None, "week": None, "month": None}
+    for w in (quota or {}).get("windows") or []:
+        key = _LABEL2KEY.get(w.get("label") or "")
+        if not key:
+            continue
+        duration = {"5h": 5 * 3600, "week": 7 * 86400, "month": 30 * 86400}[key]
+        start: Optional[str] = None
+        if w.get("starts_at"):
+            start = w["starts_at"]
+        elif w.get("reset_at"):
+            try:
+                dt = datetime.fromisoformat(str(w["reset_at"]).replace("Z", "+00:00"))
+                start = (dt - timedelta(seconds=duration)).isoformat().replace("+00:00", "Z")
+            except ValueError:
+                start = None
+        try:
+            if start and datetime.fromisoformat(start.replace("Z", "+00:00")) > now:
+                start = None  # 新订阅锚点在未来 -> 全量统计
+        except ValueError:
+            start = None
+        starts[key] = start
+    if not any(starts.values()):
+        # 未登录/无配额时: 短窗口用本地时间, 月窗口不限 (避免把历史全当成月度)
+        starts["5h"] = (now - timedelta(hours=5)).isoformat().replace("+00:00", "Z")
+        starts["week"] = (now - timedelta(days=7)).isoformat().replace("+00:00", "Z")
+        starts["month"] = None
+    return starts
+
+
+def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
+    """分模型 用量 vs 官方额度 清单.
+
+    每行: 模型 + 5h/周/月 {已用费用, 官方额度, 占比%} + 请求数与 token,
+    用于"这个模型额度还剩多少, 该不该切模型"的规划.
+    """
+    plan = (query.get("plan", ["go"])[0] or "go").lower()
+    if plan not in ("go", "plus"):
+        plan = "go"
+    refresh_limits = (query.get("refresh_limits", ["0"])[0] or "0") == "1"
+    doc = limits.load_limits(force=refresh_limits)
+    limit_map = doc.get("limits") or {}
+
+    aid = db.get_active_account_id()
+    token = db.get_token()
+    quota: dict[str, Any] = {}
+    if aid and token:
+        _, workspace_hint = db.get_account_credentials(aid)
+        quota = _fetch_quota_with_cache(aid, token, workspace_hint) or {}
+    starts = _compute_window_starts(quota)
+
+    # 每窗口分模型用量 (5h/周/月)
+    usage: dict[str, dict[str, dict[str, Any]]] = {"5h": {}, "week": {}, "month": {}}
+    for key, since in starts.items():
+        usage[key] = {r["model"]: r for r in db.model_stats_since(since, aid)}
+
+    model_ids: list[str] = []
+    for w in usage.values():
+        for mid in w:
+            if mid not in model_ids:
+                model_ids.append(mid)
+
+    rows: list[dict[str, Any]] = []
+    for mid in model_ids:
+        entry = limits.match_limit_row(limit_map, mid)
+        monthly = limits.plan_limit(entry, plan)
+        windows_out: dict[str, Any] = {}
+        max_pct = 0.0
+        for key, _dur, frac in _WINDOW_DEFS:
+            u = usage[key].get(mid)
+            used_cost = float(u["total_cost_usd"]) if u else 0.0
+            used_req = int(u["request_count"]) if u else 0
+            used_tokens = (int(u["total_input_tokens"] or 0) + int(u["total_output_tokens"] or 0)
+                           + int(u["total_reasoning_tokens"] or 0)) if u else 0
+            wlimit = (monthly * frac) if isinstance(monthly, (int, float)) else None
+            pct = round(used_cost / wlimit * 100.0, 1) if (wlimit and wlimit > 0) else None
+            if pct is not None:
+                max_pct = max(max_pct, pct)
+            windows_out[key] = {
+                "requests": used_req,
+                "tokens": used_tokens,
+                "cost_usd": round(used_cost, 6),
+                "limit_usd": round(wlimit, 2) if wlimit is not None else None,
+                "pct": pct,
+            }
+        remaining = None
+        if isinstance(monthly, (int, float)):
+            u = usage["month"].get(mid)
+            used_month = float(u["total_cost_usd"]) if u else 0.0
+            remaining = round(max(0.0, monthly - used_month), 2)
+        rows.append(
+            {
+                "model": mid,
+                "name": (entry or {}).get("name") or mid,
+                "limit_known": entry is not None,
+                "monthly_limit_usd": (round(monthly, 2) if isinstance(monthly, (int, float)) else None),
+                "remaining_month_usd": remaining,
+                "windows": windows_out,
+                "max_pct": round(max_pct, 1),
+                "status": "danger" if max_pct >= 80 else ("warn" if max_pct >= 50 else "ok"),
+            }
+        )
+    # 高危在前 -> 偏紧 -> 富余; 同档内按月费用降序; 月额度未知/无限的模型自然沉底
+    rank = {"danger": 0, "warn": 1, "ok": 2}
+    rows.sort(key=lambda r: (rank[r["status"]], -r["windows"]["month"]["cost_usd"]))
+
+    return {
+        "plan": plan,
+        "logged_in": bool(token),
+        "quota_available": bool(quota.get("success")),
+        "quota_error": (quota.get("error") if isinstance(quota, dict) else None),
+        "window_starts": starts,
+        "limits_source": doc.get("source"),
+        "limits_fetched": doc.get("fetched") or doc.get("asof"),
+        "models": rows,
+        "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
     with _sync_lock:
         _sync_state["phase"] = phase
         _sync_state["message"] = message
@@ -634,6 +776,10 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
             return
 
         _json_response(handler, {"ok": False, "error": "未知操作"}, 404)
+        return
+
+    if route == "/api/model-quota" and method == "GET":
+        _json_response(handler, _build_model_quota(query))
         return
 
     if route == "/api/usage/records" and method == "GET":

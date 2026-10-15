@@ -43,6 +43,7 @@ const I18N = {
     aboutFeatures: "功能", feat1: "配额窗口实时监控（滚动 5 小时 / 每周 / 每月）",
     feat2: "今日用量与 24 小时趋势", feat3: "各模型 Token 消耗排行与用量趋势",
     feat4: "详细使用记录分页浏览（10 条/页）", feat5: "自动同步数据，无需手动刷新",
+    feat6: "模型额度规划：各模型用量 vs 官方额度（5 小时 / 周 / 月）",
     aboutTech: "技术栈", aboutLinks: "链接", aboutThanks: "致谢", thanksText: "数据提供",
     pageFoot: "{version} · GoGauge · 数据仅保存在本地 · 数据提供 OpenCode",
     loginTitle: "连接 OpenCode Go",
@@ -83,6 +84,14 @@ const I18N = {
     setToCurrent: "设为当前", loggedOut: "已退出登录",
     logoutUserConfirm: "将退出「{name}」并清除其本地用量数据与同步记录，确定？",
     reloginConfirmNew: "将打开控制台登录页重新登录当前账号，确定？",
+    qpTitle: "模型额度规划", qpW5h: "5小时额度", qpWeek: "周额度", qpMonth: "月额度",
+    qpLimit: "官方月额度", qpRemaining: "月剩余", qpStatus: "状态",
+    qpTableTitle: "各模型用量 vs 官方额度", qpRefreshLimits: "刷新官方额度表",
+    qpRefreshDone: "官方额度表已刷新", qpNotLoggedIn: "未登录：5小时/周为本地时间窗口近似，月额度条件下统计全部本地记录",
+    qpLimitSource: "额度表来源:", qpNote:
+      "口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量按控制台请求明细（本机同步库，官方仅保留 30 天明细）统计。百分比仅供规划参考，总额度窗口以上方仪表为准。",
+    qpUnlimited: "无限", qpUnknown: "未知",
+    stOk: "富余", stWarn: "偏紧", stDanger: "注意额度",
   },
   en: {
     syncing: "Syncing", themeDark: "Dark", themeLight: "Light", refresh: "Refresh",
@@ -122,6 +131,9 @@ const I18N = {
     aboutFeatures: "Features", feat1: "Quota window monitoring (5h rolling / weekly / monthly)",
     feat2: "Today's usage with 24-hour trend", feat3: "Per-model token ranking and usage trend",
     feat4: "Paginated usage records (10 per page)", feat5: "Auto sync — no manual refresh needed",
+    feat6: "Model quota planner: per-model usage vs official limits (5h / weekly / monthly)",
+    aboutTech: "Tech Stack", aboutLinks: "Links", aboutThanks: "Thanks", thanksText: "Data provided by",
+    feat6: "Model quota planner: per-model usage vs official limits (5h / weekly / monthly)",
     aboutTech: "Tech Stack", aboutLinks: "Links", aboutThanks: "Thanks", thanksText: "Data provided by",
     pageFoot: "{version} · GoGauge · Local-only data · Data by OpenCode",
     loginTitle: "Connect OpenCode Go",
@@ -162,6 +174,14 @@ const I18N = {
     setToCurrent: "Make Active", loggedOut: "Signed out",
     logoutUserConfirm: "Sign out \"{name}\" and remove their local usage data and sync history?",
     reloginConfirmNew: "This opens the console sign-in page to re-login the current account. Continue?",
+    qpTitle: "Model Quota Planner", qpW5h: "5-hour Quota", qpWeek: "Weekly Quota", qpMonth: "Monthly Quota",
+    qpLimit: "Official Monthly Limit", qpRemaining: "Month Left", qpStatus: "Status",
+    qpTableTitle: "Model Usage vs Official Quota", qpRefreshLimits: "Refresh Quota Table",
+    qpRefreshDone: "Official quota table refreshed", qpNotLoggedIn: "Not logged in: 5h/week windows are local approximations; monthly figures cover all local records",
+    qpLimitSource: "Quota table source:", qpNote:
+      "Basis: official monthly limits per model from opencode.ai docs; 5-hour = 20% and weekly = 50% of it. Usage comes from console request logs (local sync, 30-day retention on the server). Percentages are for planning; the total windows above remain authoritative.",
+    qpUnlimited: "Unlimited", qpUnknown: "Unknown",
+    stOk: "Plenty", stWarn: "Tightening", stDanger: "Watch quota",
   },
 };
 let lang = "zh";
@@ -181,6 +201,7 @@ let state = {
   ovRetryTimer: null,
   records: { page: 1, pageSize: 7, total: 0, model: "" },
   sessions: { page: 1, pageSize: 7, total: 0 },
+  qp: { plan: "go", seq: 0, data: null },
   settings: { sync_interval_sec: 300, window_days: 60, auto_sync: true },
 };
 
@@ -199,6 +220,7 @@ function fmtTokens(n) {
 function fmtInt(n) { return Number(n || 0).toLocaleString("en-US"); }
 function fmtMoney(usd) {
   usd = Number(usd) || 0;
+  if (Math.abs(usd) < 0.005) return state.currency === "CNY" ? "¥0" : "$0";
   if (state.currency === "CNY") {
     const v = usd * state.exchangeRate;
     return "¥" + (v >= 1 ? v.toFixed(2) : v.toFixed(4));
@@ -270,6 +292,7 @@ function applyLang(l) {
     renderSettings();
     loadRecords().catch(() => {});
   }
+  if (state.page === "quota") loadModelQuota().catch(() => {});
 }
 
 /* ---------------- 弹框 / Toast ---------------- */
@@ -383,6 +406,7 @@ function switchPage(page) {
   $("page-" + page).hidden = false;
   document.querySelectorAll(".side-item").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
   if (page === "home" || page === "stats") loadDashboard();
+  if (page === "quota") loadModelQuota().catch(() => {});
   if (page === "overview") loadOverview().catch(() => {});
   if (page === "records") { loadSessions().catch(() => {}); loadRecords().catch(() => {}); }
   if (page === "settings") renderSettings();
@@ -599,6 +623,83 @@ function chartTrend(trend) {
     },
   });
   cTrend.resize();
+}
+
+/* ---------------- 模型额度规划 (/api/model-quota) ---------------- */
+async function loadModelQuota(refresh = false) {
+  const seq = ++state.qp.seq;
+  const btn = $("qp-refresh");
+  if (refresh && btn) { btn.disabled = true; btn.textContent = t("syncing") + "…"; }
+  try {
+    const q = new URLSearchParams({ plan: state.qp.plan });
+    if (refresh) q.set("refresh_limits", "1");
+    const data = await api(`/api/model-quota?${q}`);
+    if (seq !== state.qp.seq) return;
+    state.qp.data = data;
+    renderModelQuota(data);
+    if (refresh) toast(t("qpRefreshDone"));
+  } catch (e) {
+    if (seq === state.qp.seq) {
+      state.qp.data = null;
+      $("qp-body").innerHTML =
+        `<tr><td colspan="7" style="text-align:center;color:var(--red);padding:20px">${t("loadFailed")}: ${escapeHtml(e.message)}</td></tr>`;
+    }
+    if (refresh) toast(String(e.message || e), "err");
+  } finally {
+    if (refresh && btn) { btn.disabled = false; btn.textContent = t("qpRefreshLimits"); }
+  }
+}
+
+function qpCell(w, row) {
+  if (!row || !row.limit_known) {
+    return `<div class="qp-cell"><span class="qp-val">${fmtMoney(w ? w.cost_usd : 0)} / ${t("qpUnknown")}</span></div>`;
+  }
+  const unlimited = row.monthly_limit_usd == null;  // 已知但为无限额 (免费模型)
+  const pct = w ? w.pct : null;
+  const lvl = pct == null ? "" : (pct >= 80 ? " danger" : pct >= 50 ? " warn" : "");
+  const usedTxt = fmtMoney(w ? w.cost_usd : 0);
+  const limTxt = unlimited ? "∞" : (w && w.limit_usd != null ? fmtMoney(w.limit_usd) : "—");
+  const barW = pct == null ? 0 : Math.min(100, pct);
+  const tip = w ? `${fmtInt(w.requests)} req · ${fmtTokens(w.tokens)} tok` : "";
+  return `<div class="qp-cell${lvl}" title="${escapeHtml(tip)}">
+      <span class="qp-val">${usedTxt} / ${limTxt}</span>
+      <div class="qp-bar"><i style="width:${barW}%"></i></div>
+      <span class="qp-pct">${pct == null ? "—" : pct.toFixed(0) + "%"}</span></div>`;
+}
+
+function qpBadge(status) {
+  const label = status === "ok" ? t("stOk") : status === "warn" ? t("stWarn") : t("stDanger");
+  return `<span class="qp-badge b-${escapeHtml(status)}">${label}</span>`;
+}
+
+function renderModelQuota(data) {
+  if (!data) return;
+  const meta = $("qp-meta");
+  const src = String(data.limits_source || "").replace(/\(.*?\)\s*$/, "").trim();
+  meta.textContent = `${t("qpLimitSource")} ${src} · ${data.limits_fetched || "—"}`;
+  const err = !data.logged_in
+    ? t("qpNotLoggedIn")
+    : (!data.quota_available && data.quota_error ? `${t("quotaFail")}: ${data.quota_error}` : "");
+  $("qp-note").innerHTML = err
+    ? `<div class="qp-warn-line">${escapeHtml(err)} · ${escapeHtml(t("qpNote"))}</div>`
+    : escapeHtml(t("qpNote"));
+  const body = $("qp-body");
+  if (!data.models || !data.models.length) {
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">${t("noData")}</td></tr>`;
+    return;
+  }
+  body.innerHTML = data.models.map((m) => {
+    const limTxt = !m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.monthly_limit_usd));
+    const remTxt = !m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.remaining_month_usd));
+    return `<tr>
+      <td><span class="model-cell">${modelIcon(m.model)}${escapeHtml(m.model)}</span></td>
+      <td>${qpCell(m.windows["5h"], m)}</td>
+      <td>${qpCell(m.windows["week"], m)}</td>
+      <td>${qpCell(m.windows["month"], m)}</td>
+      <td class="num">${limTxt}</td>
+      <td class="num">${remTxt}</td>
+      <td>${qpBadge(m.status)}</td></tr>`;
+  }).join("");
 }
 
 /* ---------------- 会话用量 ---------------- */
@@ -1240,6 +1341,14 @@ function bindEvents() {
   $("ses-prev").addEventListener("click", () => { if (state.sessions.page > 1) { state.sessions.page--; loadSessions(); } });
   $("ses-next").addEventListener("click", () => { state.sessions.page++; loadSessions(); });
   $("rec-model-filter").addEventListener("change", (e) => { state.records.model = e.target.value; state.records.page = 1; loadRecords(); });
+
+  // 模型额度规划: 计划切换 + 官方额度表刷新
+  document.querySelectorAll("#qp-plan .pill").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("#qp-plan .pill").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active"); state.qp.plan = b.dataset.v;
+    loadModelQuota();
+  }));
+  $("qp-refresh").addEventListener("click", () => loadModelQuota(true));
 
   // 检查更新: 有新版 -> 弹窗 -> 打开浏览器前往 GitHub Releases 下载
   $("btn-check-update").addEventListener("click", async () => {

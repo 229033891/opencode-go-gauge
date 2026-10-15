@@ -43,6 +43,9 @@
     <button class="side-item" data-page="records" title="Records">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
     </button>
+    <button class="side-item" data-page="quota" title="Model Quota">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13 L17 7"/><circle cx="12" cy="13" r="1.6" fill="currentColor" stroke="none"/><path d="M4.2 16.5a8.8 8.8 0 1 1 15.6 0"/></svg>
+    </button>
     <div class="spacer"></div>
     <button class="side-item" data-page="overview" id="side-overview" title="Accounts Overview" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16 4.5a3.2 3.2 0 0 1 0 7"/><path d="M17.5 15.2c2 .6 3.5 2.4 3.5 4.8"/></svg>
@@ -123,6 +126,34 @@
       </div>
     </section>
 
+    <!-- ============ 模型额度规划 ============ -->
+    <section class="page" id="page-quota" hidden>
+      <div class="ph"><h2 class="ph-title" data-i18n="qpTitle">模型额度规划</h2>
+        <div class="ph-right">
+          <div class="pill-row" id="qp-plan"><button class="pill active" data-v="go">Go</button><button class="pill" data-v="plus">Go Plus</button></div>
+          <button class="pill small" id="qp-refresh" data-i18n="qpRefreshLimits">刷新官方额度表</button>
+        </div>
+      </div>
+      <div class="card qp-card">
+        <div class="card-h"><h3 data-i18n="qpTableTitle">各模型用量 vs 官方额度</h3><span class="hint" id="qp-meta">—</span></div>
+        <table class="tbl qp-tbl">
+          <thead><tr>
+            <th data-i18n="colModel">模型</th>
+            <th data-i18n="qpW5h">5小时额度</th>
+            <th data-i18n="qpWeek">周额度</th>
+            <th data-i18n="qpMonth">月额度</th>
+            <th class="num" data-i18n="qpLimit">官方月额度</th>
+            <th class="num" data-i18n="qpRemaining">月剩余</th>
+            <th data-i18n="qpStatus">状态</th>
+          </tr></thead>
+          <tbody id="qp-body"></tbody>
+        </table>
+        <div class="qp-note" id="qp-note">
+          <span data-i18n="qpNote">口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量以控制台请求明细（本机同步库，30 天保留）统计。百分比仅供规划参考，总额度窗口以上方仪表为准。</span>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ 账户总览 (开关控制显隐) ============ -->
     <section class="page" id="page-overview" hidden>
       <div class="ph"><h2 class="ph-title" data-i18n="accountOverview">账户总览</h2></div>
@@ -191,6 +222,7 @@
           <li data-i18n="feat3">各模型 Token 消耗排行与用量趋势</li>
           <li data-i18n="feat4">详细使用记录分页浏览（10 条/页）</li>
           <li data-i18n="feat5">自动同步数据，无需手动刷新</li>
+          <li data-i18n="feat6">模型额度规划：各模型用量 vs 官方额度（5 小时 / 周 / 月）</li>
         </ul>
       </div>
       <div class="card set-card">

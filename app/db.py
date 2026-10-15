@@ -906,6 +906,66 @@ def model_stats(period: str = "30d", account_id: Optional[int] = None) -> list[d
     return result
 
 
+def model_stats_since(
+    since_iso: Optional[str] = None,
+    account_id: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    """按模型聚合 (与 model_stats 口径一致), 但起点由调用方指定.
+
+    Args:
+        since_iso: ISO 时间 (含 Z), None 表示不限制起点 (= model_stats("30d") 口径不同, 这是不限时间)
+        account_id: 归属账号, None -> 活跃账号
+    用于官方额度窗口 (5h/周/月) 的分模型用量统计.
+    """
+    aid = _resolve_account_id(account_id)
+    params: list[Any] = [aid]
+    since_clause = ""
+    if since_iso:
+        since_clause = "AND datetime(created_at) >= datetime(?)"
+        params.append(since_iso)  # 与 SQL 中 account_id = ? 之后的第2个占位符对应
+    rows = get_db().execute(
+        f"""
+        SELECT model,
+               COUNT(*) AS request_count,
+               COUNT(DISTINCT CASE WHEN session_id IS NOT NULL AND session_id != '' THEN session_id END) AS session_count,
+               SUM(input_tokens + cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens) AS total_input_tokens,
+               SUM(input_tokens) AS uncached_input_tokens,
+               SUM(reasoning_tokens) AS total_reasoning_tokens,
+               SUM(cache_read_tokens) AS cache_hit_tokens,
+               SUM(cache_write_5m_tokens + cache_write_1h_tokens) AS cache_write_tokens,
+               SUM(output_tokens) AS total_output_tokens,
+               SUM(cost_usd) AS total_cost_usd
+        FROM usage_records
+        WHERE account_id = ? {since_clause}
+        GROUP BY model
+        ORDER BY (SUM(input_tokens + cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens)
+                  + SUM(output_tokens)) DESC
+        """,
+        params,
+    ).fetchall()
+    result: list[dict[str, Any]] = []
+    for r in rows:
+        hit = int(r["cache_hit_tokens"] or 0)
+        miss = int(r["uncached_input_tokens"] or 0)
+        hit_rate = (hit / (hit + miss) * 100) if (hit + miss) > 0 else 0.0
+        result.append(
+            {
+                "model": r["model"],
+                "request_count": int(r["request_count"]),
+                "session_count": int(r["session_count"] or 0),
+                "total_input_tokens": int(r["total_input_tokens"] or 0),
+                "uncached_input_tokens": miss,
+                "total_reasoning_tokens": int(r["total_reasoning_tokens"] or 0),
+                "cache_hit_tokens": hit,
+                "cache_write_tokens": int(r["cache_write_tokens"] or 0),
+                "total_output_tokens": int(r["total_output_tokens"] or 0),
+                "total_cost_usd": round(float(r["total_cost_usd"] or 0), 6),
+                "hit_rate": round(hit_rate, 2),
+            }
+        )
+    return result
+
+
 def daily_stats(days: int = 30, account_id: Optional[int] = None) -> list[dict[str, Any]]:
     """每日聚合: 输入(含缓存) / 普通输入 / 推理 / 缓存命中 / 缓存写入 / 输出 / 成本 / 请求数."""
     days = max(1, min(days, 365))
