@@ -139,17 +139,34 @@
         <span class="hint" data-i18n="qpFilterHint">用量按所选 Key 合计；额度仍为账户级（规划参考）</span>
         <div class="pill-row" id="qp-keys"></div>
       </div>
+      <div class="qp-tools">
+        <input type="search" id="qp-search" class="qp-search" data-i18n-ph="qpSearchPlaceholder" placeholder="筛选模型…">
+        <select id="qp-status" class="select">
+          <option value="all" data-i18n="qpStatusAll">全部状态</option>
+          <option value="used" data-i18n="qpStatusUsed">仅有用量</option>
+          <option value="danger" data-i18n="stDanger">注意额度</option>
+          <option value="warn" data-i18n="stWarn">偏紧</option>
+          <option value="ok" data-i18n="stOk">富余</option>
+          <option value="idle" data-i18n="stIdle">未使用</option>
+        </select>
+        <button class="pill small active" id="qp-price-toggle" data-i18n="qpShowPrices">价格列</button>
+        <span class="hint" id="qp-count"></span>
+      </div>
       <div class="card qp-card">
         <div class="card-h"><h3 data-i18n="qpTableTitle">各模型用量 vs 官方额度</h3><span class="hint" id="qp-meta">—</span></div>
         <table class="tbl qp-tbl">
           <thead><tr>
-            <th data-i18n="colModel">模型</th>
-            <th data-i18n="qpW5h">5小时额度</th>
-            <th data-i18n="qpWeek">周额度</th>
-            <th data-i18n="qpMonth">月额度</th>
-            <th class="num" data-i18n="qpLimit">官方月额度</th>
-            <th class="num" data-i18n="qpRemaining">月剩余</th>
+            <th data-sort="model" data-i18n="colModel">模型</th>
+            <th data-sort="pct5h" data-i18n="qpW5h">5小时额度</th>
+            <th data-sort="pctWeek" data-i18n="qpWeek">周额度</th>
+            <th data-sort="pctMonth" data-i18n="qpMonth">月额度</th>
+            <th class="num" data-sort="limit" data-i18n="qpLimit">官方月额度</th>
+            <th class="num" data-sort="remaining" data-i18n="qpRemaining">月剩余</th>
             <th data-i18n="qpStatus">状态</th>
+            <th class="num price-col" data-sort="priceIn" data-i18n-title="qpPriceInTip" title="输入单价 (USD / 1M tokens)" data-i18n="qpPriceIn">进/1M</th>
+            <th class="num price-col" data-sort="priceOut" data-i18n-title="qpPriceOutTip" title="输出单价 (USD / 1M tokens)" data-i18n="qpPriceOut">出/1M</th>
+            <th class="num price-col" data-sort="priceCache" data-i18n-title="qpPriceCacheTip" title="缓存读单价 (USD / 1M tokens)" data-i18n="qpPriceCache">缓读/1M</th>
+            <th class="num price-col" data-sort="coef" data-i18n-title="qpCoefTip" title="价格系数 = 60 ÷ 月额度,占用共享额度池的倍数" data-i18n="qpCoef">系数</th>
           </tr></thead>
           <tbody id="qp-body"></tbody>
         </table>

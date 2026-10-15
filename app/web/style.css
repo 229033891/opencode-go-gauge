@@ -411,6 +411,16 @@ html[data-theme="dark"] .skeleton::after { background: linear-gradient(90deg, tr
 .qp-key-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 2px 10px; }
 .qp-key-bar .hint { font-size: 12px; color: var(--text3); }
 .qp-key-bar .pill-row { display: flex; margin: 0; }
+.qp-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 2px 10px; }
+.qp-search { height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); font-size: 12px; min-width: 180px; outline: none; }
+.qp-search:focus { border-color: var(--primary); }
+.qp-tools .select { height: 28px; font-size: 12px; }
+.qp-tools .hint { margin-left: auto; }
+.qp-tbl th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
+.qp-tbl th[data-sort]:hover { color: var(--text); }
+.qp-tbl th.sorted-asc::after { content: " ▲"; font-size: 9px; color: var(--primary); }
+.qp-tbl th.sorted-desc::after { content: " ▼"; font-size: 9px; color: var(--primary); }
+.qp-tbl:not(.show-prices) .price-col { display: none; }
 .qp-tbl .qp-cell { min-width: 130px; }
 .qp-cell { display: flex; flex-direction: column; gap: 3px; }
 .qp-cell .qp-val { font-size: 12px; color: var(--text2); white-space: nowrap; font-variant-numeric: tabular-nums; }

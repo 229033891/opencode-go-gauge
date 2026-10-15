@@ -28,6 +28,7 @@ DOCS_UA = (
 )
 DOCS_TIMEOUT = 30.0
 CACHE_TTL = 24 * 3600.0
+CACHE_SCHEMA = 2  # 缓存结构版本: 不匹配时自动重新解析 (v2 起含单价字段)
 
 FALLBACK_ASO = "2026-10-15"
 
@@ -72,7 +73,8 @@ _FALLBACK_RAW: dict[str, dict[str, Any]] = {
 
 FALLBACK_LIMITS = {
     mid: {"name": mid, "go": v.get("go"), "plus": v.get("plus"),
-          "input": None, "output": None, "cached_read": None}
+          "price_input": None, "price_output": None,
+          "price_cached_read": None, "price_cached_write": None}
     for mid, v in _FALLBACK_RAW.items()
 }
 
@@ -104,6 +106,20 @@ def _parse_amount(cell: str) -> Optional[float]:
     if not amounts:
         return None
     return amounts[-1]
+
+
+def _parse_price(cell: str) -> Optional[float]:
+    """单价单元格 -> USD/1M tokens; 'Free' -> 0.0, '-'/空 -> None."""
+    if not cell:
+        return None
+    text = cell.strip()
+    low = text.lower()
+    if low.startswith("free"):
+        return 0.0
+    if low in ("-", "–", "—", "n/a"):
+        return None
+    m = re.search(r"\$?\s*(\d+(?:\.\d+)?)", text)
+    return float(m.group(1)) if m else None
 
 
 def _alnum(s: str) -> str:
@@ -165,9 +181,10 @@ def parse_docs_limits(html: str, min_rows: int = 15) -> dict[str, dict[str, Any]
                 entry["unlimited"] = True  # 有限额表中的 Unlimited (免费模型)
             if plan == "go":
                 entry["name"] = name
-                entry["input"] = r[1]
-                entry["output"] = r[2]
-                entry["cached_read"] = r[3]
+                entry["price_input"] = _parse_price(r[1])
+                entry["price_output"] = _parse_price(r[2])
+                entry["price_cached_read"] = _parse_price(r[3])
+                entry["price_cached_write"] = _parse_price(r[4])
     valid = {k: v for k, v in limits_out.items()
              if k != "model" and (v.get("go") is not None or v.get("plus") is not None
                                   or v.get("unlimited"))}
@@ -186,7 +203,8 @@ def _read_cache(cache: str, min_count: int = 3) -> Optional[dict[str, Any]]:
     try:
         with open(cache, encoding="utf-8") as fh:
             data = json.load(fh)
-        if isinstance(data.get("limits"), dict) and len(data["limits"]) >= min_count:
+        if (isinstance(data.get("limits"), dict) and len(data["limits"]) >= min_count
+                and data.get("schema") == CACHE_SCHEMA):
             return data
     except (OSError, ValueError):
         pass
@@ -206,7 +224,8 @@ def load_limits(force: bool = False) -> dict[str, Any]:
         html = _fetch_html()
         limits = parse_docs_limits(html)
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        payload = {"limits": limits, "fetched": now_iso, "url": DOCS_URL, "_at": time.time()}
+        payload = {"limits": limits, "fetched": now_iso, "url": DOCS_URL,
+                   "schema": CACHE_SCHEMA, "_at": time.time()}
         try:
             os.makedirs(os.path.dirname(cache), exist_ok=True)
             with open(cache, "w", encoding="utf-8") as fh:

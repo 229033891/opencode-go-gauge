@@ -195,6 +195,10 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
     def _row_for(mid: str) -> dict[str, Any]:
         entry = limits.match_limit_row(limit_map, mid)
         monthly = limits.plan_limit(entry, plan)
+        # 价格系数: 官方口径 额度消耗 = 可见费用 x (60 / 模型月额度)
+        go_limit = (entry or {}).get("go")
+        coefficient = (round(60.0 / go_limit, 2)
+                       if isinstance(go_limit, (int, float)) and go_limit > 0 else None)
         windows_out: dict[str, Any] = {}
         max_pct = 0.0
         total_req = 0
@@ -230,6 +234,11 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
             "limit_known": entry is not None,
             "monthly_limit_usd": (round(monthly, 2) if isinstance(monthly, (int, float)) else None),
             "remaining_month_usd": remaining,
+            "coefficient": coefficient,
+            "price_input": (entry or {}).get("price_input"),
+            "price_output": (entry or {}).get("price_output"),
+            "price_cached_read": (entry or {}).get("price_cached_read"),
+            "price_cached_write": (entry or {}).get("price_cached_write"),
             "windows": windows_out,
             "max_pct": round(max_pct, 1),
             "status": status,

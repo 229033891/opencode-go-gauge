@@ -37,6 +37,14 @@ def test_parse_docs_limits():
     parsed = limits.parse_docs_limits(FIXTURE_HTML, min_rows=2)
     assert parsed["glm-5.3-flash"]["go"] == 60.0
     assert parsed["glm-5.3-flash"]["plus"] == 180.0
+    # 单价 (USD / 1M tokens): 数值化解析, '-' -> None, 'Free' -> 0.0
+    flash = parsed["glm-5.3-flash"]
+    assert flash["price_input"] == 0.15
+    assert flash["price_output"] == 0.50
+    assert flash["price_cached_read"] == 0.03
+    assert flash["price_cached_write"] is None
+    assert parsed["glm-5.3"]["price_input"] == 1.40
+    assert parsed["step5previewfree"]["price_input"] == 0.0
     assert parsed["glm-5.3"]["go"] == 15.0
     assert parsed["step5previewfree"]["go"] is None  # Unlimited
     # 促销价: 去掉 2x 粘连后取后值

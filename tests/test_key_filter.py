@@ -101,9 +101,11 @@ def test_unused_official_models_listed(isolated, monkeypatch):
     fake_limits = {
         "limits": {
             "glm-5.3-flash": {"name": "GLM-5.3-Flash", "go": 60, "plus": 180,
-                              "input": None, "output": None, "cached_read": None},
+                              "price_input": 0.15, "price_output": 0.5,
+                              "price_cached_read": 0.03, "price_cached_write": None},
             "kimi-k3": {"name": "Kimi K3", "go": 15, "plus": 60,
-                        "input": None, "output": None, "cached_read": None},
+                        "price_input": 3.0, "price_output": 15.0,
+                        "price_cached_read": 0.3, "price_cached_write": None},
         },
         "source": "test",
         "fetched": "2026-10-15T00:00:00Z",
@@ -123,6 +125,12 @@ def test_unused_official_models_listed(isolated, monkeypatch):
     kimi = by_model["kimi-k3"]
     assert kimi["status"] == "idle"
     assert kimi["monthly_limit_usd"] == 15.0
+    assert kimi["coefficient"] == 4.0            # 60 / 15
+    assert kimi["price_input"] == 3.0
+    assert kimi["price_output"] == 15.0
+    assert kimi["price_cached_write"] is None
+    assert glm["coefficient"] == 1.0             # 60 / 60
+    assert glm["price_cached_read"] == 0.03
     assert kimi["windows"]["month"] == {"requests": 0, "tokens": 0, "cost_usd": 0.0,
                                         "limit_usd": 15.0, "pct": 0.0}
     assert kimi["remaining_month_usd"] == 15.0

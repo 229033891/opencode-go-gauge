@@ -93,6 +93,13 @@ const I18N = {
     qpUnlimited: "无限", qpUnknown: "未知",
     stOk: "富余", stWarn: "偏紧", stDanger: "注意额度",
     stIdle: "未使用",
+    qpPriceIn: "进/1M", qpPriceOut: "出/1M", qpPriceCache: "缓读/1M", qpCoef: "系数",
+    qpPriceInTip: "输入单价 (USD / 1M tokens)", qpPriceOutTip: "输出单价 (USD / 1M tokens)",
+    qpPriceCacheTip: "缓存读单价 (USD / 1M tokens)",
+    qpCoefTip: "价格系数 = 60 ÷ 月额度，即 1 美元可见费用占用共享额度池的倍数（$15 档 = 4×，$60 档 = 1×）",
+    qpShowPrices: "价格列", qpSearchPlaceholder: "筛选模型…",
+    qpStatusAll: "全部状态", qpStatusUsed: "仅有用量", qpCountShown: "显示 {shown}/{total} 个模型",
+    qpFree: "免费", qpSortHint: "点击表头排序",
     qpAllKeys: "全部 Key", qpNoKey: "未归属",
     qpFilterHint: "用量按所选 Key 合计；额度仍为账户级（规划参考）",
     qpStatusNa: "不适用",
@@ -193,6 +200,13 @@ const I18N = {
     qpUnlimited: "Unlimited", qpUnknown: "Unknown",
     stOk: "Plenty", stWarn: "Tightening", stDanger: "Watch quota",
     stIdle: "Unused",
+    qpPriceIn: "In/1M", qpPriceOut: "Out/1M", qpPriceCache: "Cache/1M", qpCoef: "Coef",
+    qpPriceInTip: "Input price (USD / 1M tokens)", qpPriceOutTip: "Output price (USD / 1M tokens)",
+    qpPriceCacheTip: "Cached-read price (USD / 1M tokens)",
+    qpCoefTip: "Price coefficient = 60 ÷ monthly limit: how many shared-quota dollars one visible dollar consumes ($15 tier = 4x, $60 tier = 1x)",
+    qpShowPrices: "Price columns", qpSearchPlaceholder: "Filter models…",
+    qpStatusAll: "All statuses", qpStatusUsed: "Used only", qpCountShown: "Showing {shown}/{total} models",
+    qpFree: "Free", qpSortHint: "Click a header to sort",
     qpAllKeys: "All keys", qpNoKey: "Unassigned",
     qpFilterHint: "Usage summed for selected keys; limits stay account-wide (planning only)",
     qpStatusNa: "N/A",
@@ -221,7 +235,7 @@ let state = {
   ovRetryTimer: null,
   records: { page: 1, pageSize: 7, total: 0, model: "" },
   sessions: { page: 1, pageSize: 7, total: 0 },
-  qp: { plan: "go", seq: 0, data: null, keyIds: [] },
+  qp: { plan: "go", seq: 0, data: null, keyIds: [], showPrices: true, sort: { key: null, dir: "desc" }, filter: { text: "", status: "all" } },
   settings: { sync_interval_sec: 300, window_days: 60, auto_sync: true },
 };
 
@@ -301,6 +315,10 @@ function applyLang(l) {
   // 静态 data-i18n-title 悬浮提示 (侧边栏/窗口按钮等)
   document.querySelectorAll("[data-i18n-title]").forEach((el) => {
     el.title = t(el.dataset.i18nTitle);
+  });
+  // 静态 data-i18n-ph 占位符 (搜索框等)
+  document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPh);
   });
   document.querySelectorAll("#set-lang-pills .pill").forEach((b) => b.classList.toggle("active", b.dataset.v === lang));
   // 版本号: 唯一来源为后端 /api/version (app/__init__.py), 前端动态获取
@@ -798,6 +816,61 @@ function qpBadge(status) {
   return `<span class="qp-badge b-${escapeHtml(status)}">${label}</span>`;
 }
 
+function qpFmtPrice(v) {
+  if (v == null) return "—";
+  if (v === 0) return t("qpFree");
+  if (v < 0.01) return "$" + v.toFixed(4);
+  if (v < 1) return "$" + v.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  return "$" + v.toFixed(2);
+}
+
+function qpSortValue(m, key) {
+  switch (key) {
+    case "model": return `${m.model}`.toLowerCase();
+    case "pct5h": return m.windows["5h"]?.pct ?? -1;
+    case "pctWeek": return m.windows["week"]?.pct ?? -1;
+    case "pctMonth": return m.windows["month"]?.pct ?? -1;
+    case "limit": return m.monthly_limit_usd ?? -1;
+    case "remaining": return m.remaining_month_usd ?? -1;
+    case "priceIn": return m.price_input ?? -1;
+    case "priceOut": return m.price_output ?? -1;
+    case "priceCache": return m.price_cached_read ?? -1;
+    case "coef": return m.coefficient ?? -1;
+    default: return 0;
+  }
+}
+
+function qpVisibleModels(data) {
+  const { text, status } = state.qp.filter;
+  const needle = (text || "").trim().toLowerCase();
+  let rows = (data.models || []).filter((m) => {
+    if (needle && !(`${m.model} ${m.name || ""}`.toLowerCase().includes(needle))) return false;
+    if (status === "used" && m.status === "idle") return false;
+    if (status !== "all" && status !== "used" && m.status !== status) return false;
+    return true;
+  });
+  const { key, dir } = state.qp.sort;
+  if (key) {
+    const sign = dir === "asc" ? 1 : -1;
+    rows = rows.slice().sort((a, b) => {
+      const va = qpSortValue(a, key), vb = qpSortValue(b, key);
+      if (typeof va === "string" || typeof vb === "string") {
+        return sign * String(va).localeCompare(String(vb));
+      }
+      return sign * (va - vb);
+    });
+  }
+  return rows;
+}
+
+function qpUpdateSortIcons() {
+  const { key, dir } = state.qp.sort;
+  document.querySelectorAll(".qp-tbl th[data-sort]").forEach((th) => {
+    th.classList.remove("sorted-asc", "sorted-desc");
+    if (th.dataset.sort === key) th.classList.add(dir === "asc" ? "sorted-asc" : "sorted-desc");
+  });
+}
+
 function renderModelQuota(data) {
   if (!data) return;
   const meta = $("qp-meta");
@@ -809,16 +882,27 @@ function renderModelQuota(data) {
   $("qp-note").innerHTML = err
     ? `<div class="qp-warn-line">${escapeHtml(err)} · ${escapeHtml(t("qpNote"))}</div>`
     : escapeHtml(t("qpNote"));
+  const table = document.querySelector(".qp-tbl");
+  if (table) table.classList.toggle("show-prices", state.qp.showPrices !== false);
   const body = $("qp-body");
-  if (!data.models || !data.models.length) {
-    body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">${t("noData")}</td></tr>`;
+  const rows = qpVisibleModels(data);
+  const counter = $("qp-count");
+  if (counter) {
+    counter.textContent = t("qpCountShown")
+      .replace("{shown}", String(rows.length))
+      .replace("{total}", String((data.models || []).length));
+    counter.title = t("qpSortHint");
+  }
+  qpUpdateSortIcons();
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:20px">${t("noData")}</td></tr>`;
     return;
   }
   // 筛 Key 时月剩余/状态相对账户额度会误导, 改为「不适用」
   const keyFiltered = (data.filter?.key_ids || []).length > 0;
   const colTip = escapeHtml(t("qpKeyFilterColTip"));
   const cellOpts = { muteAlarm: keyFiltered };
-  body.innerHTML = data.models.map((m) => {
+  body.innerHTML = rows.map((m) => {
     const limTxt = !m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.monthly_limit_usd));
     const remTxt = keyFiltered
       ? `<span class="qp-na" title="${colTip}">—</span>`
@@ -833,7 +917,11 @@ function renderModelQuota(data) {
       <td>${qpCell(m.windows["month"], m, cellOpts)}</td>
       <td class="num">${limTxt}</td>
       <td class="num">${remTxt}</td>
-      <td>${statusHtml}</td></tr>`;
+      <td>${statusHtml}</td>
+      <td class="num price-col">${qpFmtPrice(m.price_input)}</td>
+      <td class="num price-col">${qpFmtPrice(m.price_output)}</td>
+      <td class="num price-col">${qpFmtPrice(m.price_cached_read)}</td>
+      <td class="num price-col">${m.coefficient == null ? "—" : "×" + (Number.isInteger(m.coefficient) ? m.coefficient : m.coefficient.toFixed(2))}</td></tr>`;
   }).join("");
 }
 
@@ -1484,6 +1572,29 @@ function bindEvents() {
     loadModelQuota();
   }));
   $("qp-refresh").addEventListener("click", () => loadModelQuota(true));
+
+  // 表头点击排序 (升/降切换)
+  document.querySelectorAll(".qp-tbl th[data-sort]").forEach((th) => th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    const s = state.qp.sort;
+    if (s.key === key) s.dir = s.dir === "asc" ? "desc" : "asc";
+    else { s.key = key; s.dir = key === "model" ? "asc" : "desc"; }
+    if (state.qp.data) renderModelQuota(state.qp.data);
+  }));
+  // 模型搜索 / 状态筛选 / 价格列开关 (纯前端, 不重新请求)
+  $("qp-search").addEventListener("input", (e) => {
+    state.qp.filter.text = e.target.value;
+    if (state.qp.data) renderModelQuota(state.qp.data);
+  });
+  $("qp-status").addEventListener("change", (e) => {
+    state.qp.filter.status = e.target.value;
+    if (state.qp.data) renderModelQuota(state.qp.data);
+  });
+  $("qp-price-toggle").addEventListener("click", () => {
+    state.qp.showPrices = state.qp.showPrices === false;
+    $("qp-price-toggle").classList.toggle("active", state.qp.showPrices !== false);
+    if (state.qp.data) renderModelQuota(state.qp.data);
+  });
 
   // 检查更新: 有新版 -> 弹窗 -> 打开浏览器前往 GitHub Releases 下载
   $("btn-check-update").addEventListener("click", async () => {
