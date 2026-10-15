@@ -68,11 +68,15 @@ python entry.py
 
 ### Build
 
+Locally:
+
 ```bash
 build.bat
 ```
 
 Output: `dist\GoGauge.exe` (~38 MB, --noconsole, logo icon included).
+
+CI: push a `v*` tag (or run **Build & Release** manually in Actions) builds on `windows-latest` and attaches `GoGauge.exe` to the [Release](../../releases).
 
 ## 📊 Data Notes
 

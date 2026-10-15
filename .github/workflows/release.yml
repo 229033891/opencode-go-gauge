@@ -1,0 +1,61 @@
+# Tag (v*) 或手动触发: Windows 上 PyInstaller 打 GoGauge.exe，并上传 Release / Artifact
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build GoGauge.exe
+        # 与 build.bat 保持一致 (单文件 / 无控制台 / 裁剪误收集依赖)
+        shell: cmd
+        run: >
+          pyinstaller --noconfirm --clean --onefile --noconsole --name GoGauge
+          --add-data "app\web;app\web"
+          --add-data "assets;assets"
+          --icon assets\GoGauge.ico
+          --collect-submodules webview
+          --hidden-import clr
+          --hidden-import pythonnet
+          --hidden-import pystray
+          --exclude-module numpy
+          --exclude-module cryptography
+          --exclude-module PIL._avif
+          entry.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoGauge-windows
+          path: dist/GoGauge.exe
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/GoGauge.exe
+          generate_release_notes: true
+          fail_on_unmatched_files: true
