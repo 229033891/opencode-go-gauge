@@ -139,7 +139,9 @@
             <th data-sort="pctWeek" data-i18n="qpWeek">周额度</th>
             <th data-sort="pctMonth" data-i18n="qpMonth">月额度</th>
             <th class="num" data-sort="limit" data-i18n="qpLimit">官方月额度</th>
-            <th class="num" data-sort="remaining" data-i18n="qpRemaining">月剩余</th>
+            <th class="num" data-sort="remaining" data-i18n-title="qpRemainingTip" data-i18n="qpRemaining">月额度剩余</th>
+            <th class="num" data-sort="reqUsed" data-i18n-title="qpReqUsedTip" data-i18n="qpReqUsed">月请求已用</th>
+            <th class="num" data-sort="reqEst" data-i18n-title="qpReqEstTip" data-i18n="qpReqEst">月请求剩余(估算)</th>
             <th data-i18n="qpStatus">状态</th>
             <th class="num price-col" data-sort="priceIn" data-i18n-title="qpPriceInTip" title="输入单价 (USD / 1M tokens)" data-i18n="qpPriceIn">进/1M</th>
             <th class="num price-col" data-sort="priceOut" data-i18n-title="qpPriceOutTip" title="输出单价 (USD / 1M tokens)" data-i18n="qpPriceOut">出/1M</th>
@@ -149,7 +151,7 @@
           <tbody id="qp-body"></tbody>
         </table>
         <div class="qp-note" id="qp-note">
-          <span data-i18n="qpNote">口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量以控制台请求明细（本机同步库，30 天保留）统计。百分比仅供规划参考，总额度窗口以上方仪表为准。</span>
+          <span data-i18n="qpNote">口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量按控制台请求明细（本机同步库，官方仅保留 30 天明细）统计。月请求剩余为软估算（额度剩余÷均价/次），非官方硬限额。百分比仅供规划参考，总额度窗口以上方仪表为准。</span>
         </div>
       </div>
     </section>

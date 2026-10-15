@@ -84,10 +84,22 @@ def test_build_model_quota_windows_and_limits(isolated, monkeypatch):
     assert qwen["windows"]["5h"]["cost_usd"] == 0
     assert qwen["monthly_limit_usd"] == 15.0
     assert qwen["remaining_month_usd"] == pytest.approx(7.0)
+    # 1 次请求 $8 → 均价 $8/次 → 剩余 $7 → 估算 0 次 (向下取整); 样本 <5
+    assert qwen["month_requests_used"] == 1
+    assert qwen["avg_cost_per_request"] == pytest.approx(8.0)
+    assert qwen["est_remaining_requests"] == 0
+    assert qwen["est_sample_small"] is True
+
+    # glm: 月内 2 次共 $6, 剩余 $54 → 均价 $3 → 估算 18 次
+    assert glm["month_requests_used"] == 2
+    assert glm["avg_cost_per_request"] == pytest.approx(3.0)
+    assert glm["est_remaining_requests"] == 18
+    assert glm["est_sample_small"] is True
 
     omen = by_model["omen-alpha"]
     assert omen["limit_known"] is False
     assert omen["monthly_limit_usd"] is None
+    assert omen["est_remaining_requests"] is None
 
     # 状态排序: danger 最前, 零用量(idle) 最后
     statuses = [m["status"] for m in quota["models"]]

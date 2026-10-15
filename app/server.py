@@ -204,10 +204,11 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
         entry = limits.match_limit_row(limit_map, mid)
         monthly = limits.plan_limit(entry, plan)
         # 价格系数: 官方口径 额度消耗 = 可见费用 x (60 / 模型月额度)
-        # 免费模型优先判定: 请求端 -free 后缀, 或官方表中无月额度 (Unlimited) -> 0.1
+        # 免费模型优先判定: 请求端 -free 后缀, 或官方表中无月额度 (Unlimited)
+        # -> 0（不进共享额度池；勿用 0.1 假装 $600 档）
         go_limit = (entry or {}).get("go")
         if "-free" in mid.lower() or (entry is not None and go_limit is None):
-            coefficient = 0.1
+            coefficient = 0.0
         elif isinstance(go_limit, (int, float)) and go_limit > 0:
             coefficient = round(60.0 / go_limit, 2)
         else:
@@ -233,11 +234,20 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
                 "limit_usd": round(wlimit, 2) if wlimit is not None else None,
                 "pct": pct,
             }
+        # 月额度剩余 + 月请求软估算 (官方无请求次数硬限额)
+        u_month = usage["month"].get(mid)
+        used_month = float(u_month["total_cost_usd"]) if u_month else 0.0
+        used_req_month = int(u_month["request_count"]) if u_month else 0
         remaining = None
         if isinstance(monthly, (int, float)):
-            u = usage["month"].get(mid)
-            used_month = float(u["total_cost_usd"]) if u else 0.0
             remaining = round(max(0.0, monthly - used_month), 2)
+        # 估算剩余次数 = 月额度剩余 ÷ (月费用 / 月请求数); 样本 <5 标 small
+        avg_cost_per_req = (
+            used_month / used_req_month if used_req_month > 0 and used_month > 0 else None
+        )
+        est_remaining_requests = None
+        if remaining is not None and avg_cost_per_req:
+            est_remaining_requests = int(remaining / avg_cost_per_req)  # 向下取整偏保守
         status = ("danger" if max_pct >= 80 else ("warn" if max_pct >= 50 else "ok"))
         if total_req == 0:
             status = "idle"  # 零用量 (官方表内模型, 本账号未使用)
@@ -247,6 +257,12 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
             "limit_known": entry is not None,
             "monthly_limit_usd": (round(monthly, 2) if isinstance(monthly, (int, float)) else None),
             "remaining_month_usd": remaining,
+            "month_requests_used": used_req_month,
+            "avg_cost_per_request": (
+                round(avg_cost_per_req, 6) if avg_cost_per_req is not None else None
+            ),
+            "est_remaining_requests": est_remaining_requests,
+            "est_sample_small": used_req_month > 0 and used_req_month < 5,
             "coefficient": coefficient,
             "price_input": (entry or {}).get("price_input"),
             "price_output": (entry or {}).get("price_output"),

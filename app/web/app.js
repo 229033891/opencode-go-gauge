@@ -85,11 +85,16 @@ const I18N = {
     logoutUserConfirm: "将退出「{name}」并清除其本地用量数据与同步记录，确定？",
     reloginConfirmNew: "将打开控制台登录页重新登录当前账号，确定？",
     qpTitle: "模型额度规划", qpW5h: "5小时额度", qpWeek: "周额度", qpMonth: "月额度",
-    qpLimit: "官方月额度", qpRemaining: "月剩余", qpStatus: "状态",
+    qpLimit: "官方月额度", qpRemaining: "月额度剩余", qpStatus: "状态",
+    qpReqUsed: "月请求已用", qpReqEst: "月请求剩余(估算)",
+    qpRemainingTip: "官方月额度 − 本月可见费用",
+    qpReqUsedTip: "本月该模型请求条数（本地同步库）",
+    qpReqEstTip: "软估算：月额度剩余 ÷ (本月费用÷本月请求数)；官方无请求次数硬限额，样本少时偏差大",
+    qpReqEstSmall: "样本较少，估算偏差可能较大",
     qpTableTitle: "各模型用量 vs 官方额度", qpRefreshLimits: "刷新官方额度表",
     qpRefreshDone: "官方额度表已刷新", qpNotLoggedIn: "未登录：5小时/周为本地时间窗口近似，月额度条件下统计全部本地记录",
     qpLimitSource: "额度表来源:", qpNote:
-      "口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量按控制台请求明细（本机同步库，官方仅保留 30 天明细）统计。百分比仅供规划参考，总额度窗口以上方仪表为准。",
+      "口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量按控制台请求明细（本机同步库，官方仅保留 30 天明细）统计。月请求剩余为软估算（额度剩余÷均价/次），非官方硬限额。百分比仅供规划参考，总额度窗口以上方仪表为准。",
     qpUnlimited: "无限", qpUnknown: "未知",
     stOk: "富余", stWarn: "偏紧", stDanger: "注意额度",
     stIdle: "未使用",
@@ -105,7 +110,7 @@ const I18N = {
     qpAllKeys: "全部 Key", qpNoKey: "未归属",
     qpFilterHint: "用量按所选 Key 合计；额度仍为账户级（规划参考）",
     qpStatusNa: "不适用",
-    qpKeyFilterColTip: "已按 Key 筛选用量；月剩余与状态按账户额度计算会误导，故不显示",
+    qpKeyFilterColTip: "已按 Key 筛选用量；月额度剩余/请求估算与状态按账户额度计算会误导，故不显示",
     fullScreenOn: "已进入全屏，按 F11 退出", fullScreenOff: "已退出全屏",
     navHome: "总览首页", navStats: "用量统计", navRecords: "使用记录",
     navQuota: "模型额度规划", navOverview: "账户总览", navSettings: "设置", navAbout: "关于",
@@ -194,11 +199,16 @@ const I18N = {
     logoutUserConfirm: "Sign out \"{name}\" and remove their local usage data and sync history?",
     reloginConfirmNew: "This opens the console sign-in page to re-login the current account. Continue?",
     qpTitle: "Model Quota Planner", qpW5h: "5-hour Quota", qpWeek: "Weekly Quota", qpMonth: "Monthly Quota",
-    qpLimit: "Official Monthly Limit", qpRemaining: "Month Left", qpStatus: "Status",
+    qpLimit: "Official Monthly Limit", qpRemaining: "Quota Left", qpStatus: "Status",
+    qpReqUsed: "Reqs Used", qpReqEst: "Reqs Left (est.)",
+    qpRemainingTip: "Official monthly limit − visible month cost",
+    qpReqUsedTip: "Request count this month for the model (local sync)",
+    qpReqEstTip: "Soft estimate: quota left ÷ (month cost ÷ month requests); no official request cap — small samples are noisy",
+    qpReqEstSmall: "Small sample — estimate may be off",
     qpTableTitle: "Model Usage vs Official Quota", qpRefreshLimits: "Refresh Quota Table",
     qpRefreshDone: "Official quota table refreshed", qpNotLoggedIn: "Not logged in: 5h/week windows are local approximations; monthly figures cover all local records",
     qpLimitSource: "Quota table source:", qpNote:
-      "Basis: official monthly limits per model from opencode.ai docs; 5-hour = 20% and weekly = 50% of it. Usage comes from console request logs (local sync, 30-day retention on the server). Percentages are for planning; the total windows above remain authoritative.",
+      "Basis: official monthly limits per model from opencode.ai docs; 5-hour = 20% and weekly = 50% of it. Usage comes from console request logs (local sync, 30-day retention on the server). Reqs left is a soft estimate (quota left ÷ avg $/req), not an official cap. Percentages are for planning; the total windows above remain authoritative.",
     qpUnlimited: "Unlimited", qpUnknown: "Unknown",
     stOk: "Plenty", stWarn: "Tightening", stDanger: "Watch quota",
     stIdle: "Unused",
@@ -214,7 +224,7 @@ const I18N = {
     qpAllKeys: "All keys", qpNoKey: "Unassigned",
     qpFilterHint: "Usage summed for selected keys; limits stay account-wide (planning only)",
     qpStatusNa: "N/A",
-    qpKeyFilterColTip: "Usage is filtered by key; month-left and status would mislead against account limits, so they are hidden",
+    qpKeyFilterColTip: "Usage is filtered by key; quota-left / request estimate and status would mislead against account limits, so they are hidden",
     fullScreenOn: "Fullscreen on — press F11 to exit", fullScreenOff: "Fullscreen off",
     navHome: "Home", navStats: "Usage Stats", navRecords: "Records",
     navQuota: "Model Quota Planner", navOverview: "Accounts Overview", navSettings: "Settings", navAbout: "About",
@@ -821,11 +831,11 @@ function qpBadge(status) {
 }
 
 function qpFmtPrice(v) {
+  // 单价列: 去尾零更易扫读 ($4 / $0.2 / $0.834); 0 显示「免费」
   if (v == null) return "—";
   if (v === 0) return t("qpFree");
-  if (v < 0.01) return "$" + v.toFixed(4);
-  if (v < 1) return "$" + v.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-  return "$" + v.toFixed(2);
+  const digits = v < 0.01 ? 4 : (v < 1 ? 3 : 2);
+  return "$" + Number(v.toFixed(digits));
 }
 
 function qpSortValue(m, key) {
@@ -836,6 +846,8 @@ function qpSortValue(m, key) {
     case "pctMonth": return m.windows["month"]?.pct ?? -1;
     case "limit": return m.monthly_limit_usd ?? -1;
     case "remaining": return m.remaining_month_usd ?? -1;
+    case "reqUsed": return m.month_requests_used ?? -1;
+    case "reqEst": return m.est_remaining_requests ?? -1;
     case "priceIn": return m.price_input ?? -1;
     case "priceOut": return m.price_output ?? -1;
     case "priceCache": return m.price_cached_read ?? -1;
@@ -899,10 +911,10 @@ function renderModelQuota(data) {
   }
   qpUpdateSortIcons();
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:20px">${t("noData")}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:20px">${t("noData")}</td></tr>`;
     return;
   }
-  // 筛 Key 时月剩余/状态相对账户额度会误导, 改为「不适用」
+  // 筛 Key 时月额度剩余/请求估算/状态相对账户额度会误导, 改为「不适用」
   const keyFiltered = (data.filter?.key_ids || []).length > 0;
   const colTip = escapeHtml(t("qpKeyFilterColTip"));
   const cellOpts = { muteAlarm: keyFiltered };
@@ -911,12 +923,28 @@ function renderModelQuota(data) {
     const remTxt = keyFiltered
       ? `<span class="qp-na" title="${colTip}">—</span>`
       : (!m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.remaining_month_usd)));
+    const reqUsedTxt = fmtInt(m.month_requests_used || 0);
+    let reqEstTxt;
+    if (keyFiltered) {
+      reqEstTxt = `<span class="qp-na" title="${colTip}">—</span>`;
+    } else if (!m.limit_known) {
+      reqEstTxt = "—";
+    } else if (m.monthly_limit_usd == null) {
+      reqEstTxt = "∞";  // 免费/无限额
+    } else if (m.est_remaining_requests == null) {
+      reqEstTxt = "—";  // 无费用样本无法估算
+    } else {
+      const tip = m.est_sample_small
+        ? escapeHtml(t("qpReqEstSmall"))
+        : escapeHtml(t("qpReqEstTip"));
+      reqEstTxt = `<span class="qp-est${m.est_sample_small ? " small" : ""}" title="${tip}">~${fmtInt(m.est_remaining_requests)}</span>`;
+    }
     const statusHtml = keyFiltered
       ? `<span class="qp-badge b-na" title="${colTip}">${escapeHtml(t("qpStatusNa"))}</span>`
       : qpBadge(m.status);
     const coefTxt = m.coefficient == null
       ? "—"
-      : "×" + Number(m.coefficient.toFixed(2));  // 去尾零: 0.10 -> 0.1, 4.00 -> 4
+      : "×" + Number(m.coefficient.toFixed(2));  // 去尾零: 0.00 -> 0, 4.00 -> 4
     return `<tr${m.status === "idle" ? ' class="idle"' : ""}>
       <td><span class="model-cell">${modelIcon(m.model)}${escapeHtml(m.model)}</span></td>
       <td>${qpCell(m.windows["5h"], m, cellOpts)}</td>
@@ -924,6 +952,8 @@ function renderModelQuota(data) {
       <td>${qpCell(m.windows["month"], m, cellOpts)}</td>
       <td class="num">${limTxt}</td>
       <td class="num">${remTxt}</td>
+      <td class="num">${reqUsedTxt}</td>
+      <td class="num">${reqEstTxt}</td>
       <td>${statusHtml}</td>
       <td class="num price-col">${qpFmtPrice(m.price_input)}</td>
       <td class="num price-col">${qpFmtPrice(m.price_output)}</td>

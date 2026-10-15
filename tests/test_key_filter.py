@@ -92,7 +92,7 @@ def test_build_model_quota_key_filter(isolated, monkeypatch):
 
 
 def test_products_filter_and_free_coefficient(isolated, monkeypatch):
-    """产品线过滤: 默认仅 go; 免费模型系数 0.1."""
+    """产品线过滤: 默认仅 go; 免费模型系数 0."""
     monkeypatch.setattr(server, "_fetch_quota_with_cache", _fake_quota())
     monkeypatch.setitem(server._quota_cache, 1, {"at": 0.0, "data": None})
     monkeypatch.setattr(db, "get_token", lambda: "tok")
@@ -127,7 +127,7 @@ def test_products_filter_and_free_coefficient(isolated, monkeypatch):
     models = {m["model"]: m for m in quota_go["models"]}
     assert models["glm-5.3-flash"]["windows"]["5h"]["requests"] == 1
     assert models["step-5-preview-free"]["status"] == "idle"
-    assert models["step-5-preview-free"]["coefficient"] == 0.1   # 免费模型系数
+    assert models["step-5-preview-free"]["coefficient"] == 0.0   # 免费模型系数
 
     # scope=all: 免费记录也计入请求数
     quota_all = server._build_model_quota({"scope": ["all"]})
@@ -136,13 +136,13 @@ def test_products_filter_and_free_coefficient(isolated, monkeypatch):
     assert models["step-5-preview-free"]["windows"]["5h"]["requests"] == 1
     assert models["step-5-preview-free"]["status"] == "ok"
 
-    # 未在官方额度表内的 -free 模型 (未知额度) 同样给 0.1 系数
+    # 未在官方额度表内的 -free 模型 (未知额度) 同样给 0 系数
     unknown_free = _rec("prod3", hours_ago=1.0, model="nemotron-3-ultra-free", cost_usd=0.0)
     unknown_free["plan"] = "standard"
     db.insert_usage_records([unknown_free])
     quota_all = server._build_model_quota({"scope": ["all"]})
     rows = {m["model"]: m for m in quota_all["models"]}
-    assert rows["nemotron-3-ultra-free"]["coefficient"] == 0.1
+    assert rows["nemotron-3-ultra-free"]["coefficient"] == 0.0
     assert rows["nemotron-3-ultra-free"]["limit_known"] is False
 
     # -free 后缀优先判定为免费 (即便能宽松匹配到同族官方模型 space-bunny $30 -> 否则会是 x2)
@@ -151,7 +151,7 @@ def test_products_filter_and_free_coefficient(isolated, monkeypatch):
     db.insert_usage_records([free_variant])
     quota_all = server._build_model_quota({"scope": ["all"]})
     rows = {m["model"]: m for m in quota_all["models"]}
-    assert rows["space-bunny-free"]["coefficient"] == 0.1
+    assert rows["space-bunny-free"]["coefficient"] == 0.0
 
 
 def test_unused_official_models_listed(isolated, monkeypatch):

@@ -422,6 +422,8 @@ html[data-theme="dark"] .skeleton::after { background: linear-gradient(90deg, tr
 .qp-tbl th.sorted-desc::after { content: " ▼"; font-size: 9px; color: var(--primary); }
 .qp-tbl:not(.show-prices) .price-col { display: none; }
 .qp-tbl .qp-cell { min-width: 130px; }
+.qp-tbl .qp-est { color: var(--text2); }
+.qp-tbl .qp-est.small { color: var(--text3); font-style: italic; }
 .qp-cell { display: flex; flex-direction: column; gap: 3px; }
 .qp-cell .qp-val { font-size: 12px; color: var(--text2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .qp-bar { height: 4px; border-radius: 3px; background: var(--grid); overflow: hidden; width: 100%; max-width: 130px; }
