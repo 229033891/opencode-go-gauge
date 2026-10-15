@@ -180,16 +180,29 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
             if mid not in model_ids:
                 model_ids.append(mid)
 
-    rows: list[dict[str, Any]] = []
+    # 本账号未使用、但官方额度表中存在的模型也进表 (值为 0, 置于表尾),
+    # 让用户在切换前就能看到备选模型的额度档位
+    official_only: list[str] = []
+    matched_entries: set[int] = set()
     for mid in model_ids:
+        entry = limits.match_limit_row(limit_map, mid)
+        if entry is not None:
+            matched_entries.add(id(entry))
+    for mid, entry in limit_map.items():
+        if id(entry) not in matched_entries and mid not in model_ids:
+            official_only.append(mid)
+
+    def _row_for(mid: str) -> dict[str, Any]:
         entry = limits.match_limit_row(limit_map, mid)
         monthly = limits.plan_limit(entry, plan)
         windows_out: dict[str, Any] = {}
         max_pct = 0.0
+        total_req = 0
         for key, _dur, frac in _WINDOW_DEFS:
             u = usage[key].get(mid)
             used_cost = float(u["total_cost_usd"]) if u else 0.0
             used_req = int(u["request_count"]) if u else 0
+            total_req += used_req
             used_tokens = (int(u["total_input_tokens"] or 0) + int(u["total_output_tokens"] or 0)
                            + int(u["total_reasoning_tokens"] or 0)) if u else 0
             wlimit = (monthly * frac) if isinstance(monthly, (int, float)) else None
@@ -208,20 +221,24 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
             u = usage["month"].get(mid)
             used_month = float(u["total_cost_usd"]) if u else 0.0
             remaining = round(max(0.0, monthly - used_month), 2)
-        rows.append(
-            {
-                "model": mid,
-                "name": (entry or {}).get("name") or mid,
-                "limit_known": entry is not None,
-                "monthly_limit_usd": (round(monthly, 2) if isinstance(monthly, (int, float)) else None),
-                "remaining_month_usd": remaining,
-                "windows": windows_out,
-                "max_pct": round(max_pct, 1),
-                "status": "danger" if max_pct >= 80 else ("warn" if max_pct >= 50 else "ok"),
-            }
-        )
-    # 高危在前 -> 偏紧 -> 富余; 同档内按月费用降序; 月额度未知/无限的模型自然沉底
-    rank = {"danger": 0, "warn": 1, "ok": 2}
+        status = ("danger" if max_pct >= 80 else ("warn" if max_pct >= 50 else "ok"))
+        if total_req == 0:
+            status = "idle"  # 零用量 (官方表内模型, 本账号未使用)
+        return {
+            "model": mid,
+            "name": (entry or {}).get("name") or mid,
+            "limit_known": entry is not None,
+            "monthly_limit_usd": (round(monthly, 2) if isinstance(monthly, (int, float)) else None),
+            "remaining_month_usd": remaining,
+            "windows": windows_out,
+            "max_pct": round(max_pct, 1),
+            "status": status,
+        }
+
+    rows = [_row_for(mid) for mid in model_ids]
+    rows.extend(_row_for(mid) for mid in official_only)
+    # 高危在前 -> 偏紧 -> 富余 -> 零用量; 同档内按月费用降序
+    rank = {"danger": 0, "warn": 1, "ok": 2, "idle": 3}
     rows.sort(key=lambda r: (rank[r["status"]], -r["windows"]["month"]["cost_usd"]))
 
     # Key 目录 (账户历史出现过的 Key, 与时间窗无关; 未归属哨兵放最后)

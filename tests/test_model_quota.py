@@ -89,9 +89,9 @@ def test_build_model_quota_windows_and_limits(isolated, monkeypatch):
     assert omen["limit_known"] is False
     assert omen["monthly_limit_usd"] is None
 
-    # 状态排序: danger 最前
+    # 状态排序: danger 最前, 零用量(idle) 最后
     statuses = [m["status"] for m in quota["models"]]
-    assert statuses == sorted(statuses, key=lambda s: {"danger": 0, "warn": 1, "ok": 2}[s])
+    assert statuses == sorted(statuses, key=lambda s: {"danger": 0, "warn": 1, "ok": 2, "idle": 3}[s])
 
 
 def test_plan_plus_multiplier(isolated, monkeypatch):

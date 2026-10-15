@@ -92,6 +92,7 @@ const I18N = {
       "口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量按控制台请求明细（本机同步库，官方仅保留 30 天明细）统计。百分比仅供规划参考，总额度窗口以上方仪表为准。",
     qpUnlimited: "无限", qpUnknown: "未知",
     stOk: "富余", stWarn: "偏紧", stDanger: "注意额度",
+    stIdle: "未使用",
     qpAllKeys: "全部 Key", qpNoKey: "未归属",
     qpFilterHint: "用量按所选 Key 合计；额度仍为账户级（规划参考）",
     qpStatusNa: "不适用",
@@ -191,6 +192,7 @@ const I18N = {
       "Basis: official monthly limits per model from opencode.ai docs; 5-hour = 20% and weekly = 50% of it. Usage comes from console request logs (local sync, 30-day retention on the server). Percentages are for planning; the total windows above remain authoritative.",
     qpUnlimited: "Unlimited", qpUnknown: "Unknown",
     stOk: "Plenty", stWarn: "Tightening", stDanger: "Watch quota",
+    stIdle: "Unused",
     qpAllKeys: "All keys", qpNoKey: "Unassigned",
     qpFilterHint: "Usage summed for selected keys; limits stay account-wide (planning only)",
     qpStatusNa: "N/A",
@@ -791,7 +793,8 @@ function qpCell(w, row, { muteAlarm = false } = {}) {
 }
 
 function qpBadge(status) {
-  const label = status === "ok" ? t("stOk") : status === "warn" ? t("stWarn") : t("stDanger");
+  const label = status === "ok" ? t("stOk") : status === "warn" ? t("stWarn")
+    : status === "idle" ? t("stIdle") : t("stDanger");
   return `<span class="qp-badge b-${escapeHtml(status)}">${label}</span>`;
 }
 
@@ -823,7 +826,7 @@ function renderModelQuota(data) {
     const statusHtml = keyFiltered
       ? `<span class="qp-badge b-na" title="${colTip}">${escapeHtml(t("qpStatusNa"))}</span>`
       : qpBadge(m.status);
-    return `<tr>
+    return `<tr${m.status === "idle" ? ' class="idle"' : ""}>
       <td><span class="model-cell">${modelIcon(m.model)}${escapeHtml(m.model)}</span></td>
       <td>${qpCell(m.windows["5h"], m, cellOpts)}</td>
       <td>${qpCell(m.windows["week"], m, cellOpts)}</td>

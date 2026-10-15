@@ -89,3 +89,42 @@ def test_build_model_quota_key_filter(isolated, monkeypatch):
     quota_mix = server._build_model_quota({"key_ids": ["kid_a,__none__"]})
     glm = next(m for m in quota_mix["models"] if m["model"] == "glm-5.3-flash")
     assert glm["windows"]["5h"]["cost_usd"] == pytest.approx(7.0)
+
+
+def test_unused_official_models_listed(isolated, monkeypatch):
+    """官方额度表中的模型即便本账号没用过也要出现在表尾, 状态 idle."""
+    monkeypatch.setattr(server, "_fetch_quota_with_cache", _fake_quota())
+    monkeypatch.setitem(server._quota_cache, 1, {"at": 0.0, "data": None})
+    monkeypatch.setattr(db, "get_token", lambda: "tok")
+    monkeypatch.setattr(db, "get_active_account_id", lambda: 1)
+    monkeypatch.setattr(db, "get_account_credentials", lambda aid: ("tok", "Default"))
+    fake_limits = {
+        "limits": {
+            "glm-5.3-flash": {"name": "GLM-5.3-Flash", "go": 60, "plus": 180,
+                              "input": None, "output": None, "cached_read": None},
+            "kimi-k3": {"name": "Kimi K3", "go": 15, "plus": 60,
+                        "input": None, "output": None, "cached_read": None},
+        },
+        "source": "test",
+        "fetched": "2026-10-15T00:00:00Z",
+    }
+    monkeypatch.setattr(server.limits, "load_limits", lambda force=False: dict(fake_limits))
+    db.insert_usage_records([
+        _rec("z1", hours_ago=1.0, model="glm-5.3-flash", cost_usd=2.0, key_id="kid_a"),
+    ])
+
+    quota = server._build_model_quota({})
+    by_model = {m["model"]: m for m in quota["models"]}
+    assert set(by_model) == {"glm-5.3-flash", "kimi-k3"}
+
+    glm = by_model["glm-5.3-flash"]
+    assert glm["status"] != "idle" and glm["windows"]["month"]["cost_usd"] > 0
+
+    kimi = by_model["kimi-k3"]
+    assert kimi["status"] == "idle"
+    assert kimi["monthly_limit_usd"] == 15.0
+    assert kimi["windows"]["month"] == {"requests": 0, "tokens": 0, "cost_usd": 0.0,
+                                        "limit_usd": 15.0, "pct": 0.0}
+    assert kimi["remaining_month_usd"] == 15.0
+    # 零用量排在有用量之后
+    assert quota["models"][-1]["status"] == "idle"
