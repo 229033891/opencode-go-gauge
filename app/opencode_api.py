@@ -51,6 +51,9 @@ METER_ROLLING = "fiveHour"
 METER_WEEKLY = "week"
 METER_MONTHLY = "month"
 
+# go/status 金额单位: microCents = 1e-8 USD
+MICRO_USD = 1e8
+
 # request-logs: 单页条数 (接口上限 100)
 USAGE_PAGE_SIZE = 100
 
@@ -75,6 +78,10 @@ class QuotaWindow:
     reset_at: str  # ISO
     reset_in_sec: int
     starts_at: str = ""  # 窗口起点 ISO (接口提供时才有, 用于精确对齐分模型统计)
+    # 额度窗口是账号级共享池, 不是分模型独立桶; 以下为接口原始美元金额
+    # (由 limitMicroCents / usedMicroCents 按 1e-8 USD 换算)
+    limit_usd: float = 0.0
+    used_usd: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +93,8 @@ class QuotaWindow:
             "reset_at": self.reset_at,
             "reset_in_sec": self.reset_in_sec,
             "starts_at": self.starts_at,
+            "limit_usd": round(self.limit_usd, 6),
+            "used_usd": round(self.used_usd, 6),
         }
 
 
@@ -97,6 +106,8 @@ class QuotaResult:
     updated_at: str
     windows: list[QuotaWindow] = field(default_factory=list)
     error: Optional[str] = None
+    # access.startsAt: 订阅周期真实起点 (月度窗口对齐用; 不能用 reset-30d 推算)
+    period_start: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -107,6 +118,8 @@ class QuotaResult:
         }
         if self.error:
             payload["error"] = self.error
+        if self.period_start:
+            payload["period_start"] = self.period_start
         if self.windows:
             payload["windows"] = [w.to_dict() for w in self.windows]
         return payload
@@ -435,6 +448,8 @@ def parse_go_status(payload: Any, now: Optional[datetime] = None) -> list[QuotaW
                 reset_at=reset_at,
                 reset_in_sec=_seconds_until(reset_at, now),
                 starts_at=_iso_from_text(meter.get("startsAt")),
+                limit_usd=limit / MICRO_USD,
+                used_usd=used_raw / MICRO_USD,
             )
         )
     return windows
@@ -462,12 +477,63 @@ def fetch_quota(token: str, workspace_hint: str = "Default") -> QuotaResult:
         return QuotaResult(
             name=name, workspace_id=workspace_id, success=True,
             updated_at=updated_at, windows=windows,
+            period_start=_iso_from_text((payload.get("access") or {}).get("startsAt")) or "",
         )
     except Exception as exc:  # noqa: BLE001
         return QuotaResult(
             name=name, workspace_id=hint, success=False,
             updated_at=updated_at, error=str(exc),
         )
+
+
+def quota_pool(quota: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """从 fetch_quota 结果提取账号级共享额度池 (真实美元金额).
+
+    重要: Go 的额度是**账号级共享池**, /go/status 只返回 5h/week/month 三个
+    meter, 没有 model 维度。官方文档里每个模型的 "Monthly limit" 列是权重,
+    不是独立上限 —— 各模型互相扣减同一个池子。
+
+    实测 (Go 套餐): 5h=$12 / week=$30 / month=$60, 即月额度的 20% / 50% / 100%。
+    """
+    out: dict[str, Any] = {
+        "available": False,
+        "mode": "shared_pool",
+        "monthly_limit_usd": None,
+        "period_start": "",
+        "windows": {},
+        "note": (
+            "额度为账号级共享池: 5h=月额度20%, week=月额度50%, month=100%; "
+            "各模型扣减同一个池子, 官方文档的 per-model Monthly limit 是权重不是独立桶。"
+        ),
+    }
+    if not isinstance(quota, dict) or not quota.get("success"):
+        return out
+    out["period_start"] = quota.get("period_start") or ""
+
+    for w in quota.get("windows") or []:
+        # 键名与 _WINDOW_DEFS / _LABEL2KEY / 前端 windows["5h"] 保持一致
+        key = {
+            LABEL_ROLLING: "5h",
+            LABEL_WEEKLY: "week",
+            LABEL_MONTHLY: "month",
+        }.get(w.get("label") or "")
+        if not key:
+            continue
+        limit = _as_float(w.get("limit_usd"))
+        used = _as_float(w.get("used_usd"))
+        out["windows"][key] = {
+            "limit_usd": round(limit, 4),
+            "used_usd": round(used, 4),
+            "remaining_usd": round(max(0.0, limit - used), 4),
+            "pct": _clamp_percent(used / limit * 100.0) if limit > 0 else None,
+            "starts_at": w.get("starts_at") or "",
+            "resets_at": w.get("reset_at") or "",
+            "reset_in_sec": w.get("reset_in_sec"),
+        }
+        if key == "month":
+            out["monthly_limit_usd"] = round(limit, 4)
+    out["available"] = bool(out["windows"])
+    return out
 
 
 # ---------------------------------------------------------------------------

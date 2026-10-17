@@ -187,15 +187,18 @@ def test_unused_official_models_listed(isolated, monkeypatch):
 
     kimi = by_model["kimi-k3"]
     assert kimi["status"] == "idle"
-    assert kimi["monthly_limit_usd"] == 15.0
-    assert kimi["coefficient"] == 4.0            # 60 / 15
+    assert kimi["doc_monthly_limit_usd"] == 15.0   # 文档档位权重 (非独立额度)
+    assert kimi["coefficient"] == 4.0            # 池 $60 / 档位 $15
+    assert kimi["is_free"] is False
     assert kimi["price_input"] == 3.0
     assert kimi["price_output"] == 15.0
     assert kimi["price_cached_write"] is None
-    assert glm["coefficient"] == 1.0             # 60 / 60
+    assert glm["coefficient"] == 1.0             # 池 $60 / 档位 $60
     assert glm["price_cached_read"] == 0.03
+    # 共享池口径: 窗口上限是全账号池上限, 不是该模型的 $15 独立桶
     assert kimi["windows"]["month"] == {"requests": 0, "tokens": 0, "cost_usd": 0.0,
-                                        "limit_usd": 15.0, "pct": 0.0}
-    assert kimi["remaining_month_usd"] == 15.0
+                                        "pool_cost_usd": 0.0, "pool_limit_usd": 60.0,
+                                        "pool_used_usd": 12.0, "pool_share_pct": 0.0}
+    assert "remaining_month_usd" not in kimi
     # 零用量排在有用量之后
     assert quota["models"][-1]["status"] == "idle"

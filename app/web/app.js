@@ -22,12 +22,12 @@ const I18N = {
     setUpdate: "软件更新", currentVersion: "当前版本", checkUpdate: "检查更新", checkUpdateDesc: "检查 GitHub 上是否有新版本", checkUpdateBtn: "检查更新",
     checkingUpdate: "检查中…", updateFound: "发现新版本", updateNone: "已是最新版本", updateFailed: "检查更新失败", goDownload: "前往下载",
     colTime: "时间", colModel: "模型", colInput: "输入", colOutput: "输出",
-    colReasoning: "推理", colCacheRead: "缓存读", colCost: "费用", colPlan: "PLAN",
+    colReasoning: "推理", colCacheRead: "缓存读", colCost: "费用",
     prev: "上一页", next: "下一页",
-    settingsTitle: "设置", setAccount: "OpenCode 账户", setLoginState: "登录状态",
-    setWorkspace: "工作区", setLoginMethod: "登录方式",
+    settingsTitle: "设置", setAccount: "OpenCode 账户",
+    setLoginMethod: "登录方式",
     loginMethodDesc: "内置浏览器 (WebView2) 打开 opencode.ai 控制台登录页，自动回填",
-    relogin: "重新登录", setLogout: "退出登录", logoutDesc: "清除本地 token 与缓存数据", logout: "退出登录",
+    relogin: "重新登录", logout: "退出登录",
     setAutoSync: "自动同步", autoSync: "自动增量同步", autoSyncDesc: "按间隔拉取最新用量记录",
     syncInterval: "同步间隔", syncIntervalDesc: "多久自动同步一次",
     min1: "1 分钟", min5: "5 分钟", min15: "15 分钟", min30: "30 分钟",
@@ -44,9 +44,8 @@ const I18N = {
     feat2: "今日用量与 24 小时趋势", feat3: "各模型 Token 消耗排行与用量趋势",
     feat4: "详细使用记录分页浏览（10 条/页）", feat5: "自动同步数据，无需手动刷新",
     feat6: "模型额度规划：各模型用量 vs 官方额度（5 小时 / 周 / 月）",
-    aboutTech: "技术栈", aboutLinks: "链接", aboutThanks: "致谢", thanksText: "数据提供",
+    aboutLinks: "链接", aboutThanks: "致谢", thanksText: "数据提供",
     pageFoot: "{version} · GoGauge · 数据仅保存在本地 · 数据提供 OpenCode",
-    loginTitle: "连接 OpenCode Go",
     welcomeDesc: "本地优先的 OpenCode Go 用量仪表盘 — 配额窗口、Token 构成、模型排行、使用记录，打开即见。",
     welcomeFeat1: "配额实时监控（5 小时 / 每周 / 每月）",
     welcomeFeat2: "Token 全维度统计与 24 小时趋势",
@@ -62,46 +61,45 @@ const I18N = {
     currentRange: "当前范围", avgPer: "均", perReq: "/次", dedup: "去重 sessionID",
     noData: "暂无记录", loadFailed: "加载失败", totalN: "共", items: "条",
     pageOf: "第", ofPages: "页",
-    loggedIn: "已登录", notLoggedIn: "未登录", connected: "已连接", notConnected: "未连接",
+    loggedIn: "已登录", notLoggedIn: "未登录",
     lastSync: "上次同步", records: "条记录", updatedAt: "更新于",
     justNow: "刚刚", minAgo: "分钟前", hrAgo: "小时前", dayAgo: "天前", never: "从未同步",
-    day: "天", hour: "小时", minute: "分钟", soon: "即将重置",
+    soon: "即将重置",
     dUnit: "天", hUnit: "小时", mUnit: "分钟",
     confirm: "确认", cancel: "取消", ok: "确定",
     fullSyncConfirm: "将重新拉取历史记录（按同步范围），确定开始？", startSync: "开始同步",
-    reloginConfirm: "将清除本地数据并打开控制台登录页重新登录，确定？", goLogin: "去登录",
-    logoutConfirm: "退出将清除本地 token 与全部缓存数据，确定退出？", quit: "退出",
     quotaFail: "配额获取失败", retryTip: "点击右上角刷新重试",
     syncIntervalSet: "同步间隔已设为", syncRangeUpdated: "同步范围已更新，下次全量同步生效",
-    trendHint: "30 天", totalTokenHint: "含缓存命中",
-    setUsers: "用户管理", addUser: "添加用户", addUserTip: "登录新的 OpenCode Go 账号并保存到本机",
+    trendHint: "30 天",
+    setUsers: "用户管理", addUser: "添加用户",
     userSwitchTip: "切换用户", userCountTip: "已登录用户数",
     switchTo: "切换", currentUserBadge: "当前", renameBtn: "重命名", deleteUser: "删除",
     renameTitle: "重命名用户", save: "保存", deleteUserTitle: "删除用户",
     deleteUserConfirm: "确定删除用户「{name}」？其本地用量数据与同步记录将一并清除，且无法恢复。",
     userDeleted: "用户已删除", userRenamed: "已重命名", switchedAccount: "已切换账号",
     noUsers: "暂无账号，点击右上角「添加用户」登录",
-    setToCurrent: "设为当前", loggedOut: "已退出登录",
+    loggedOut: "已退出登录",
     logoutUserConfirm: "将退出「{name}」并清除其本地用量数据与同步记录，确定？",
-    reloginConfirmNew: "将打开控制台登录页重新登录当前账号，确定？",
     qpTitle: "模型额度规划", qpW5h: "5小时额度", qpWeek: "周额度", qpMonth: "月额度",
-    qpLimit: "官方月额度", qpRemaining: "月额度剩余", qpStatus: "状态",
+    qpLimit: "文档档位权重", qpRemaining: "额度剩余", qpStatus: "状态",
+    qpSharedNoRemain: "共享",
+    qpFreeNoPoolTip: "免费模型 — 不占用共享额度池",
     qpReqUsed: "月请求已用", qpReqEst: "月请求剩余(估算)",
-    qpRemainingTip: "官方月额度 − 本月可见费用",
+    qpRemainingTip: "共享池：不存在单模型余额，所有模型从同一个账号级池子里扣",
     qpReqUsedTip: "本月该模型请求条数（本地同步库）",
-    qpReqEstTip: "软估算：月额度剩余 ÷ (本月费用÷本月请求数)；官方无请求次数硬限额，样本少时偏差大",
+    qpReqEstTip: "软估算：共享池剩余 ÷ (均价/次 × 系数)；官方无请求次数硬限额，样本少时偏差大",
     qpReqEstSmall: "样本较少，估算偏差可能较大",
-    qpTableTitle: "各模型用量 vs 官方额度", qpRefreshLimits: "刷新官方额度表",
-    qpRefreshDone: "官方额度表已刷新", qpNotLoggedIn: "未登录：5小时/周为本地时间窗口近似，月额度条件下统计全部本地记录",
+    qpTableTitle: "各模型用量 vs 共享额度池", qpRefreshLimits: "刷新官方额度表",
+    qpRefreshDone: "官方额度表已刷新", qpNotLoggedIn: "未登录：窗口上限为本地推算值，月度条件下统计全部本地记录",
     qpLimitSource: "额度表来源:", qpNote:
-      "口径：官方月额度取自 opencode.ai 文档限额表，每模型 5小时额度 = 月额度×20%、周额度 = ×50%；用量按控制台请求明细（本机同步库，官方仅保留 30 天明细）统计。月请求剩余为软估算（额度剩余÷均价/次），非官方硬限额。百分比仅供规划参考，总额度窗口以上方仪表为准。",
-    qpUnlimited: "无限", qpUnknown: "未知",
+      "额度是**一个账号级共享池**（/go/status：5小时 = 20%、周 = 50%、月 = 100%），模型之间不是独立桶、互相扣减。每根进度条显示的是该模型对共享池的估算占用占该窗口池上限的比例；池的真实已用量以上方仪表为准。系数 = 池月额度 ÷ 文档档位权重，档位越低越快地吃池子。用量按控制台请求明细（本机同步库，官方仅保留 30 天明细）统计。",
+    qpUnknown: "未知",
     stOk: "富余", stWarn: "偏紧", stDanger: "注意额度",
     stIdle: "未使用",
     qpPriceIn: "进/1M", qpPriceOut: "出/1M", qpPriceCache: "缓读/1M", qpCoef: "系数",
     qpPriceInTip: "输入单价 (USD / 1M tokens)", qpPriceOutTip: "输出单价 (USD / 1M tokens)",
     qpPriceCacheTip: "缓存读单价 (USD / 1M tokens)",
-    qpCoefTip: "价格系数 = 60 ÷ 月额度，即 1 美元可见费用占用共享额度池的倍数（$15 档 = 4×，$60 档 = 1×）",
+    qpCoefTip: "系数 = 池月额度 ÷ 文档档位权重，即 1 美元可见费用占用共享池的倍数（$15 档 = 4×，$60 档 = 1×，$80 档 = 0.75×）",
     qpShowPrices: "价格列", qpSearchPlaceholder: "筛选模型…",
     qpStatusAll: "全部状态", qpStatusUsed: "仅有用量", qpCountShown: "显示 {shown}/{total} 个模型",
     qpFree: "免费", qpSortHint: "点击表头排序",
@@ -134,12 +132,12 @@ const I18N = {
     setUpdate: "Software Update", currentVersion: "Current Version", checkUpdate: "Check Updates", checkUpdateDesc: "Check GitHub for new versions", checkUpdateBtn: "Check Updates",
     checkingUpdate: "Checking…", updateFound: "New Version Available", updateNone: "You're up to date", updateFailed: "Check failed", goDownload: "Go to Download",
     colTime: "Time", colModel: "Model", colInput: "Input", colOutput: "Output",
-    colReasoning: "Reasoning", colCacheRead: "Cache Read", colCost: "Cost", colPlan: "PLAN",
+    colReasoning: "Reasoning", colCacheRead: "Cache Read", colCost: "Cost",
     prev: "Prev", next: "Next",
-    settingsTitle: "Settings", setAccount: "OpenCode Account", setLoginState: "Login Status",
-    setWorkspace: "Workspace", setLoginMethod: "Login Method",
+    settingsTitle: "Settings", setAccount: "OpenCode Account",
+    setLoginMethod: "Login Method",
     loginMethodDesc: "Built-in browser (WebView2) opens the opencode.ai console sign-in page and auto-captures",
-    relogin: "Re-login", setLogout: "Logout", logoutDesc: "Clear local token and cached data", logout: "Logout",
+    relogin: "Re-login", logout: "Logout",
     setAutoSync: "Auto Sync", autoSync: "Auto incremental sync", autoSyncDesc: "Fetch latest usage records at interval",
     syncInterval: "Sync Interval", syncIntervalDesc: "How often to auto sync",
     min1: "1 min", min5: "5 min", min15: "15 min", min30: "30 min",
@@ -156,11 +154,8 @@ const I18N = {
     feat2: "Today's usage with 24-hour trend", feat3: "Per-model token ranking and usage trend",
     feat4: "Paginated usage records (10 per page)", feat5: "Auto sync — no manual refresh needed",
     feat6: "Model quota planner: per-model usage vs official limits (5h / weekly / monthly)",
-    aboutTech: "Tech Stack", aboutLinks: "Links", aboutThanks: "Thanks", thanksText: "Data provided by",
-    feat6: "Model quota planner: per-model usage vs official limits (5h / weekly / monthly)",
-    aboutTech: "Tech Stack", aboutLinks: "Links", aboutThanks: "Thanks", thanksText: "Data provided by",
+    aboutLinks: "Links", aboutThanks: "Thanks", thanksText: "Data provided by",
     pageFoot: "{version} · GoGauge · Local-only data · Data by OpenCode",
-    loginTitle: "Connect OpenCode Go",
     welcomeDesc: "A local-first OpenCode Go usage dashboard — quota windows, token breakdown, model ranking and usage records in one place.",
     welcomeFeat1: "Real-time quota monitoring (5h / weekly / monthly)",
     welcomeFeat2: "Full token stats with 24-hour trend",
@@ -176,46 +171,45 @@ const I18N = {
     currentRange: "current range", avgPer: "avg", perReq: "/req", dedup: "dedup sessionID",
     noData: "No records", loadFailed: "Failed to load", totalN: "Total", items: "records",
     pageOf: "Page", ofPages: "of",
-    loggedIn: "Logged in", notLoggedIn: "Not logged in", connected: "Connected", notConnected: "Not connected",
+    loggedIn: "Logged in", notLoggedIn: "Not logged in",
     lastSync: "Last sync", records: "records", updatedAt: "Updated",
     justNow: "just now", minAgo: "min ago", hrAgo: "hr ago", dayAgo: "d ago", never: "Never synced",
-    day: "d", hour: "h", minute: "m", soon: "resets soon",
+    soon: "resets soon",
     dUnit: "d", hUnit: "h", mUnit: "m",
     confirm: "Confirm", cancel: "Cancel", ok: "OK",
     fullSyncConfirm: "This will re-fetch all history records (per sync range). Continue?", startSync: "Start Sync",
-    reloginConfirm: "This will clear local data and open the console sign-in page. Continue?", goLogin: "Go Login",
-    logoutConfirm: "This will clear local token and all cached data. Continue?", quit: "Logout",
     quotaFail: "Quota fetch failed", retryTip: "Click refresh in top bar to retry",
     syncIntervalSet: "Sync interval set to", syncRangeUpdated: "Sync range updated, takes effect on next full sync",
-    trendHint: "30 days", totalTokenHint: "incl. cache hits",
-    setUsers: "User Management", addUser: "Add User", addUserTip: "Sign in with another OpenCode Go account",
+    trendHint: "30 days",
+    setUsers: "User Management", addUser: "Add User",
     userSwitchTip: "Switch user", userCountTip: "Logged-in users",
     switchTo: "Switch", currentUserBadge: "Active", renameBtn: "Rename", deleteUser: "Delete",
     renameTitle: "Rename User", save: "Save", deleteUserTitle: "Delete User",
     deleteUserConfirm: "Delete user \"{name}\"? Their local usage data and sync history will be removed permanently.",
     userDeleted: "User deleted", userRenamed: "Renamed", switchedAccount: "Account switched",
     noUsers: "No accounts yet — click \"Add User\" to sign in",
-    setToCurrent: "Make Active", loggedOut: "Signed out",
+    loggedOut: "Signed out",
     logoutUserConfirm: "Sign out \"{name}\" and remove their local usage data and sync history?",
-    reloginConfirmNew: "This opens the console sign-in page to re-login the current account. Continue?",
     qpTitle: "Model Quota Planner", qpW5h: "5-hour Quota", qpWeek: "Weekly Quota", qpMonth: "Monthly Quota",
-    qpLimit: "Official Monthly Limit", qpRemaining: "Quota Left", qpStatus: "Status",
+    qpLimit: "Doc Tier Weight", qpRemaining: "Quota Left", qpStatus: "Status",
+    qpSharedNoRemain: "shared",
+    qpFreeNoPoolTip: "Free model — does not consume the shared pool",
     qpReqUsed: "Reqs Used", qpReqEst: "Reqs Left (est.)",
-    qpRemainingTip: "Official monthly limit − visible month cost",
+    qpRemainingTip: "Shared pool: there is no per-model balance — models draw from one account-wide pool",
     qpReqUsedTip: "Request count this month for the model (local sync)",
-    qpReqEstTip: "Soft estimate: quota left ÷ (month cost ÷ month requests); no official request cap — small samples are noisy",
+    qpReqEstTip: "Soft estimate: shared pool remaining ÷ (avg $/req × coefficient); no official request cap — small samples are noisy",
     qpReqEstSmall: "Small sample — estimate may be off",
-    qpTableTitle: "Model Usage vs Official Quota", qpRefreshLimits: "Refresh Quota Table",
-    qpRefreshDone: "Official quota table refreshed", qpNotLoggedIn: "Not logged in: 5h/week windows are local approximations; monthly figures cover all local records",
+    qpTableTitle: "Model Usage vs Shared Pool", qpRefreshLimits: "Refresh Quota Table",
+    qpRefreshDone: "Official quota table refreshed", qpNotLoggedIn: "Not logged in: window limits are local approximations; monthly figures cover all local records",
     qpLimitSource: "Quota table source:", qpNote:
-      "Basis: official monthly limits per model from opencode.ai docs; 5-hour = 20% and weekly = 50% of it. Usage comes from console request logs (local sync, 30-day retention on the server). Reqs left is a soft estimate (quota left ÷ avg $/req), not an official cap. Percentages are for planning; the total windows above remain authoritative.",
-    qpUnlimited: "Unlimited", qpUnknown: "Unknown",
+      "Quota is ONE account-wide shared pool (/go/status: 5h = 20%, week = 50%, month = 100% of it) — models are NOT independent buckets. Each bar shows this model's estimated pool consumption as a share of that window's pool limit; the windows at the top are authoritative. Coefficient = pool monthly ÷ doc tier weight, so cheaper tiers drain the pool faster. Usage comes from console request logs (local sync, 30-day retention on the server).",
+    qpUnknown: "Unknown",
     stOk: "Plenty", stWarn: "Tightening", stDanger: "Watch quota",
     stIdle: "Unused",
     qpPriceIn: "In/1M", qpPriceOut: "Out/1M", qpPriceCache: "Cache/1M", qpCoef: "Coef",
     qpPriceInTip: "Input price (USD / 1M tokens)", qpPriceOutTip: "Output price (USD / 1M tokens)",
     qpPriceCacheTip: "Cached-read price (USD / 1M tokens)",
-    qpCoefTip: "Price coefficient = 60 ÷ monthly limit: how many shared-quota dollars one visible dollar consumes ($15 tier = 4x, $60 tier = 1x)",
+    qpCoefTip: "Coefficient = shared pool month ÷ doc tier weight: how many pool dollars one visible dollar consumes (×4 for a $15 tier, ×1 for $60, ×0.75 for $80)",
     qpShowPrices: "Price columns", qpSearchPlaceholder: "Filter models…",
     qpStatusAll: "All statuses", qpStatusUsed: "Used only", qpCountShown: "Showing {shown}/{total} models",
     qpFree: "Free", qpSortHint: "Click a header to sort",
@@ -810,14 +804,18 @@ function qpCell(w, row, { muteAlarm = false } = {}) {
   if (!row || !row.limit_known) {
     return `<div class="qp-cell"><span class="qp-val">${fmtMoney(w ? w.cost_usd : 0)} / ${t("qpUnknown")}</span></div>`;
   }
-  const unlimited = row.monthly_limit_usd == null;  // 已知但为无限额 (免费模型)
-  const pct = w ? w.pct : null;
-  // 筛 Key 时仍展示用量占比作参考, 但不标红/黄 (额度是账户级)
-  const lvl = (muteAlarm || pct == null) ? "" : (pct >= 80 ? " danger" : pct >= 50 ? " warn" : "");
+  const free = !!row.is_free;              // 免费模型不进共享池
+  // 共享池口径: 分母是该窗口的共享池上限 (全账号共值), 分子是本模型的估算占用
+  const pct = w ? w.pool_share_pct : null;
+  const lvl = (muteAlarm || pct == null || free) ? "" : (pct >= 80 ? " danger" : pct >= 50 ? " warn" : "");
   const usedTxt = fmtMoney(w ? w.cost_usd : 0);
-  const limTxt = unlimited ? "∞" : (w && w.limit_usd != null ? fmtMoney(w.limit_usd) : "—");
+  const limTxt = free ? "∞" : (w && w.pool_limit_usd != null ? fmtMoney(w.pool_limit_usd) : "—");
   const barW = pct == null ? 0 : Math.min(100, pct);
-  const tip = w ? `${fmtInt(w.requests)} req · ${fmtTokens(w.tokens)} tok` : "";
+  const share = w && w.pool_cost_usd != null ? fmtMoney(w.pool_cost_usd) : "—";
+  const tip = [
+    w ? `${fmtInt(w.requests)} req · ${fmtTokens(w.tokens)} tok` : "",
+    free ? t("qpFreeNoPoolTip") : `池占用 ${share} / ${limTxt}`,
+  ].filter(Boolean).join(" · ");
   return `<div class="qp-cell${lvl}" title="${escapeHtml(tip)}">
       <span class="qp-val">${usedTxt} / ${limTxt}</span>
       <div class="qp-bar"><i style="width:${barW}%"></i></div>
@@ -841,11 +839,11 @@ function qpFmtPrice(v) {
 function qpSortValue(m, key) {
   switch (key) {
     case "model": return `${m.model}`.toLowerCase();
-    case "pct5h": return m.windows["5h"]?.pct ?? -1;
-    case "pctWeek": return m.windows["week"]?.pct ?? -1;
-    case "pctMonth": return m.windows["month"]?.pct ?? -1;
-    case "limit": return m.monthly_limit_usd ?? -1;
-    case "remaining": return m.remaining_month_usd ?? -1;
+    case "pct5h": return m.windows["5h"]?.pool_share_pct ?? -1;
+    case "pctWeek": return m.windows["week"]?.pool_share_pct ?? -1;
+    case "pctMonth": return m.windows["month"]?.pool_share_pct ?? -1;
+    case "limit": return m.doc_monthly_limit_usd ?? -1;
+    case "remaining": return m.est_remaining_requests ?? -1;
     case "reqUsed": return m.month_requests_used ?? -1;
     case "reqEst": return m.est_remaining_requests ?? -1;
     case "priceIn": return m.price_input ?? -1;
@@ -919,18 +917,18 @@ function renderModelQuota(data) {
   const colTip = escapeHtml(t("qpKeyFilterColTip"));
   const cellOpts = { muteAlarm: keyFiltered };
   body.innerHTML = rows.map((m) => {
-    const limTxt = !m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.monthly_limit_usd));
+    const limTxt = !m.limit_known ? "—" : (m.is_free ? "∞" : fmtMoney(m.doc_monthly_limit_usd));
     const remTxt = keyFiltered
       ? `<span class="qp-na" title="${colTip}">—</span>`
-      : (!m.limit_known ? "—" : (m.monthly_limit_usd == null ? "∞" : fmtMoney(m.remaining_month_usd)));
+      : (!m.limit_known ? "—" : (m.is_free ? "∞" : t("qpSharedNoRemain")));
     const reqUsedTxt = fmtInt(m.month_requests_used || 0);
     let reqEstTxt;
     if (keyFiltered) {
       reqEstTxt = `<span class="qp-na" title="${colTip}">—</span>`;
     } else if (!m.limit_known) {
       reqEstTxt = "—";
-    } else if (m.monthly_limit_usd == null) {
-      reqEstTxt = "∞";  // 免费/无限额
+    } else if (m.is_free) {
+      reqEstTxt = "∞";  // 免费/不进池
     } else if (m.est_remaining_requests == null) {
       reqEstTxt = "—";  // 无费用样本无法估算
     } else {
@@ -1008,13 +1006,6 @@ function shortId(id) {
   const head = s.slice(0, 10);
   const tail = s.slice(-6);
   return `${head}…${tail}`;
-}
-function fmtDateTimeShort(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d)) return "—";
-  const pad = (x) => String(x).padStart(2, "0");
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /* ---------------- 使用记录 ---------------- */

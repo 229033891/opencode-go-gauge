@@ -17,17 +17,9 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 _DB: Optional[sqlite3.Connection] = None
-_data_dir_override: Optional[str] = None
-
-
-def set_data_dir(path: str) -> None:
-    global _data_dir_override
-    _data_dir_override = path
 
 
 def _default_data_dir() -> str:
-    if _data_dir_override:
-        return os.path.abspath(_data_dir_override)
     if os.environ.get("GOUSAGE_DATA"):
         return os.path.abspath(os.environ["GOUSAGE_DATA"])
     # 单文件 exe: 优先 exe 同目录 data/, 不可写则回退到 LOCALAPPDATA
@@ -394,18 +386,6 @@ def get_token() -> str:
         return ""
     row = get_db().execute("SELECT token FROM accounts WHERE id = ?", (aid,)).fetchone()
     return row["token"] if row else ""
-
-
-def get_workspace_hint() -> str:
-    aid = get_active_account_id()
-    if not aid:
-        return "Default"
-    row = get_db().execute(
-        "SELECT workspace_id, resolved_workspace_id FROM accounts WHERE id = ?", (aid,)
-    ).fetchone()
-    if row is None:
-        return "Default"
-    return row["resolved_workspace_id"] or row["workspace_id"] or "Default"
 
 
 def get_account_credentials(account_id: int) -> tuple[str, str]:

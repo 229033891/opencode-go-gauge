@@ -21,6 +21,7 @@ from .opencode_api import (
     fetch_quota,
     fetch_usage_page,
     iso_to_ms,
+    quota_pool,
     resolve_workspace_id,
 )
 
@@ -106,11 +107,17 @@ _WINDOW_DEFS = (
 )
 _LABEL2KEY = {"5h Rolling": "5h", "Weekly": "week", "Monthly": "month"}
 
+# 共享池月度额度兜底值 (登录后一律以 /go/status 的 month meter 为准)
+# Go 套餐实测 $60; Go Plus 约 4x
+_DEFAULT_POOL_MONTHLY = {"go": 60.0, "plus": 240.0}
+
 
 def _compute_window_starts(quota: dict[str, Any]) -> dict[str, Optional[str]]:
     """每个额度窗口的统计起点 (ISO 或 None=不限).
 
     优先用接口 meter.startsAt, 其次 resetAt 减去固定时长;
+    月窗口额外优先用 access.startsAt (订阅周期真实起点) —— 订阅周期不一定是
+    30 天 (如 10-15 -> 11-15 实为 31 天), 用 reset-30d 会漏掉周期开头的用量。
     新订阅 (起点在未来) 回退为不限.
     """
     now = datetime.now(timezone.utc)
@@ -121,7 +128,9 @@ def _compute_window_starts(quota: dict[str, Any]) -> dict[str, Optional[str]]:
             continue
         duration = {"5h": 5 * 3600, "week": 7 * 86400, "month": 30 * 86400}[key]
         start: Optional[str] = None
-        if w.get("starts_at"):
+        if key == "month" and quota.get("period_start"):
+            start = quota["period_start"]
+        elif w.get("starts_at"):
             start = w["starts_at"]
         elif w.get("reset_at"):
             try:
@@ -143,11 +152,27 @@ def _compute_window_starts(quota: dict[str, Any]) -> dict[str, Optional[str]]:
     return starts
 
 
-def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
-    """分模型 用量 vs 官方额度 清单.
+def _current_quota() -> tuple[Optional[int], dict[str, Any], dict[str, Any]]:
+    """当前活跃账号的 (account_id, 配额快照, 共享池)。
 
-    每行: 模型 + 5h/周/月 {已用费用, 官方额度, 占比%} + 请求数与 token,
-    用于"这个模型额度还剩多少, 该不该切模型"的规划.
+    - account_id 为 None 表示未登录/无凭证。
+    - 已登录但取配额失败时仍返回 account_id, 由 pool["available"] 为 False
+      表示"无额度数据", 调用方据此区分"未登录"与"无额度数据"。
+    """
+    aid = db.get_active_account_id()
+    token = db.get_token()
+    if not aid or not token:
+        return None, {}, quota_pool(None)
+    _, workspace_hint = db.get_account_credentials(aid)
+    quota = _fetch_quota_with_cache(aid, token, workspace_hint) or {}
+    return aid, quota, quota_pool(quota)
+
+
+def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
+    """分模型 用量 vs 共享额度池 清单.
+
+    每行: 模型 + 5h/周/月 {零售费用, 对共享池的估算占用, 占池上限%} + 请求数与 token,
+    用于"这个模型在吃多少共享池, 该不该切模型"的规划。
     """
     plan = (query.get("plan", ["go"])[0] or "go").lower()
     if plan not in ("go", "plus"):
@@ -165,13 +190,17 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
     doc = limits.load_limits(force=refresh_limits)
     limit_map = doc.get("limits") or {}
 
-    aid = db.get_active_account_id()
-    token = db.get_token()
-    quota: dict[str, Any] = {}
-    if aid and token:
-        _, workspace_hint = db.get_account_credentials(aid)
-        quota = _fetch_quota_with_cache(aid, token, workspace_hint) or {}
+    aid, quota, pool = _current_quota()
     starts = _compute_window_starts(quota)
+    # 共享池未拿到真实金额时 (未登录/无额度数据), 退化为文档默认档位
+    pool_monthly = pool.get("monthly_limit_usd") or _DEFAULT_POOL_MONTHLY.get(plan, 60.0)
+    if not pool.get("available"):
+        pool["monthly_limit_usd"] = pool_monthly
+        pool["windows"] = {
+            key: {"limit_usd": round(pool_monthly * frac, 2)}
+            for key, _dur, frac in _WINDOW_DEFS
+        }
+        pool["note"] = "未登录/无配额数据: 窗口上限为文档默认推算值, 已用需以登录后为准"
 
     # 每窗口分模型用量 (5h/周/月), 按 Key 与产品线筛选 (空 = 全部)
     keys_filter = key_ids or None
@@ -203,51 +232,63 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
     def _row_for(mid: str) -> dict[str, Any]:
         entry = limits.match_limit_row(limit_map, mid)
         monthly = limits.plan_limit(entry, plan)
-        # 价格系数: 官方口径 额度消耗 = 可见费用 x (60 / 模型月额度)
+        # 额度消耗系数 (估算): 官方口径 额度消耗 = 零售费用 x (共享池月额度 / 该模型档位)
         # 免费模型优先判定: 请求端 -free 后缀, 或官方表中无月额度 (Unlimited)
-        # -> 0（不进共享额度池；勿用 0.1 假装 $600 档）
+        # -> 0 (不进共享额度池; 勿用 0.1 假装 $600 档)
         go_limit = (entry or {}).get("go")
-        if "-free" in mid.lower() or (entry is not None and go_limit is None):
+        is_free = "-free" in mid.lower() or (entry is not None and go_limit is None)
+        if is_free:
             coefficient = 0.0
-        elif isinstance(go_limit, (int, float)) and go_limit > 0:
-            coefficient = round(60.0 / go_limit, 2)
+        elif isinstance(go_limit, (int, float)) and go_limit > 0 and pool_monthly:
+            coefficient = round(pool_monthly / go_limit, 2)
         else:
             coefficient = None
         windows_out: dict[str, Any] = {}
         max_pct = 0.0
         total_req = 0
-        for key, _dur, frac in _WINDOW_DEFS:
+        for key, _dur, _frac in _WINDOW_DEFS:
             u = usage[key].get(mid)
             used_cost = float(u["total_cost_usd"]) if u else 0.0
             used_req = int(u["request_count"]) if u else 0
             total_req += used_req
             used_tokens = (int(u["total_input_tokens"] or 0) + int(u["total_output_tokens"] or 0)
                            + int(u["total_reasoning_tokens"] or 0)) if u else 0
-            wlimit = (monthly * frac) if isinstance(monthly, (int, float)) else None
-            pct = round(used_cost / wlimit * 100.0, 1) if (wlimit and wlimit > 0) else None
-            if pct is not None:
-                max_pct = max(max_pct, pct)
+            # 共享池该窗口的上限/已用 (全账号口径, 与用哪个模型无关) —— 来自 /go/status 原始美元
+            pw = pool["windows"].get(key) or {}
+            pool_limit = pw.get("limit_usd")
+            pool_used = pw.get("used_usd")
+            # 本模型对共享池的估算占用
+            pool_cost = used_cost * coefficient if coefficient else 0.0
+            if pool_limit:
+                # 已知池上限即可算出占比 (零用量 = 0%); 上限未知才留空
+                share_pct = round(pool_cost / pool_limit * 100.0, 2)
+            else:
+                share_pct = None
+            if share_pct is not None:
+                max_pct = max(max_pct, share_pct)
             windows_out[key] = {
                 "requests": used_req,
                 "tokens": used_tokens,
-                "cost_usd": round(used_cost, 6),
-                "limit_usd": round(wlimit, 2) if wlimit is not None else None,
-                "pct": pct,
+                "cost_usd": round(used_cost, 6),       # 零售 token 计费
+                "pool_cost_usd": round(pool_cost, 6),  # 对共享池的估算占用
+                "pool_limit_usd": pool_limit,          # 共享池该窗口上限 (同池同值)
+                "pool_used_usd": pool_used,            # 共享池该窗口全账号已用
+                "pool_share_pct": share_pct,           # 占用 / 池上限
             }
-        # 月额度剩余 + 月请求软估算 (官方无请求次数硬限额)
+        # 共享池是全账号共用的: 只有池有"剩余", 单个模型没有独立余额。
+        # 估算剩余次数 = 池剩余 ÷ (月均零售费用 x 系数) —— 按本模型当前速率推演。
         u_month = usage["month"].get(mid)
         used_month = float(u_month["total_cost_usd"]) if u_month else 0.0
         used_req_month = int(u_month["request_count"]) if u_month else 0
-        remaining = None
-        if isinstance(monthly, (int, float)):
-            remaining = round(max(0.0, monthly - used_month), 2)
-        # 估算剩余次数 = 月额度剩余 ÷ (月费用 / 月请求数); 样本 <5 标 small
         avg_cost_per_req = (
             used_month / used_req_month if used_req_month > 0 and used_month > 0 else None
         )
+        pool_remaining = (pool["windows"].get("month") or {}).get("remaining_usd")
         est_remaining_requests = None
-        if remaining is not None and avg_cost_per_req:
-            est_remaining_requests = int(remaining / avg_cost_per_req)  # 向下取整偏保守
+        if pool_remaining is not None and avg_cost_per_req and coefficient:
+            per_req_pool = avg_cost_per_req * coefficient
+            if per_req_pool > 0:
+                est_remaining_requests = int(pool_remaining / per_req_pool)  # 向下取整偏保守
         status = ("danger" if max_pct >= 80 else ("warn" if max_pct >= 50 else "ok"))
         if total_req == 0:
             status = "idle"  # 零用量 (官方表内模型, 本账号未使用)
@@ -255,8 +296,8 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
             "model": mid,
             "name": (entry or {}).get("name") or mid,
             "limit_known": entry is not None,
-            "monthly_limit_usd": (round(monthly, 2) if isinstance(monthly, (int, float)) else None),
-            "remaining_month_usd": remaining,
+            "is_free": bool(is_free),
+            "doc_monthly_limit_usd": (round(monthly, 2) if isinstance(monthly, (int, float)) else None),
             "month_requests_used": used_req_month,
             "avg_cost_per_request": (
                 round(avg_cost_per_req, 6) if avg_cost_per_req is not None else None
@@ -293,9 +334,11 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
     return {
         "plan": plan,
         "scope": scope,
-        "logged_in": bool(token),
+        "logged_in": aid is not None,
         "quota_available": bool(quota.get("success")),
         "quota_error": (quota.get("error") if isinstance(quota, dict) else None),
+        "quota_mode": "shared_pool",
+        "pool": pool,
         "window_starts": starts,
         "limits_source": doc.get("source"),
         "limits_fetched": doc.get("fetched") or doc.get("asof"),
@@ -304,6 +347,24 @@ def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
                  else "usage_limits_account_wide"),
         "models": rows,
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def _build_go_raw_status() -> dict[str, Any]:
+    """只读: 直接透出 /go/status 的共享额度池真实美元金额.
+
+    这是账单真值; /api/model-quota 的分模型占用是在此基础上的估算拆解。
+    """
+    aid, quota, pool = _current_quota()
+    if aid is None:
+        return {"ok": False, "error": "未配置 token", "pool": pool}
+    return {
+        "ok": bool(pool.get("available")),
+        "name": quota.get("name"),
+        "workspace_id": quota.get("workspace_id"),
+        "updated_at": quota.get("updated_at"),
+        "error": quota.get("error"),
+        "pool": pool,
     }
 
 
@@ -351,13 +412,10 @@ def _ensure_quota_async(account_id: Optional[int] = None) -> None:
     _quota_refreshing.add(aid)
 
     def worker() -> None:
+        # fetch_quota 内部已捕获全部异常并返回 success=False 的结果, 不会向上抛;
+        # 失败同样会写入 _quota_cache, 因此 TTL 内不重试, 避免前端无限刷新。
         try:
-            # 失败也写入缓存 (None), TTL 内不再重试, 避免前端无限刷新
             _fetch_quota_with_cache(aid, token, workspace_hint)
-        except Exception:  # noqa: BLE001
-            _quota_cache.setdefault(aid, {"at": 0.0, "data": None})
-            _quota_cache[aid]["at"] = time.time()
-            _quota_cache[aid]["data"] = None
         finally:
             _quota_refreshing.discard(aid)
 
@@ -859,6 +917,10 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
 
     if route == "/api/model-quota" and method == "GET":
         _json_response(handler, _build_model_quota(query))
+        return
+
+    if route == "/api/go-raw-status" and method == "GET":
+        _json_response(handler, _build_go_raw_status())
         return
 
     if route == "/api/usage/records" and method == "GET":
