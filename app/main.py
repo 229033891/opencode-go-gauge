@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+from typing import Optional
 
 import webview
 
@@ -439,20 +440,26 @@ def main() -> None:
     )
     api.bind(main_win)
 
-    # 预创建独立登录子窗口 (hidden, 系统边框含关闭按钮; 点击"立即登录"时弹出)
-    # 用可变引用: 窗口被手动关闭后可重建, 回调始终指向当前登录窗
-    login_win_ref: dict[str, object] = {"win": webview.create_window(
-        "GoGauge - OpenCode Go Login",
-        "about:blank",
-        width=720,
-        height=640,
-        min_size=(560, 500),
-        hidden=True,
-        background_color="#f7f6f4",
-    )}
+    # 登录子窗口改为「懒创建」: 首次点击登录时才 create_window.
+    # 启动即创建 hidden 窗也会拉起 WebView2 + pythonnet 后端, 多数用户只
+    # 看数据不登录, 白白占几十 MB 内存; 已登录账号的复用场景同样受益.
+    # 用可变引用: 窗口被手动关闭后重建, 回调始终指向当前登录窗.
+    login_win_ref: dict[str, object] = {"win": None}
 
-    def login_win() -> object:
+    def login_win() -> Optional[object]:
         return login_win_ref["win"]
+
+    def _new_login_window(url: str = "about:blank"):
+        """创建登录子窗口 (系统边框含关闭按钮, 事件绑定在调用方完成)."""
+        return webview.create_window(
+            "GoGauge - OpenCode Go Login",
+            url,
+            width=720,
+            height=640,
+            min_size=(560, 500),
+            hidden=True,
+            background_color="#f7f6f4",
+        )
 
     def _bind_login_close_cleanup(win) -> None:
         """登录窗被手动关闭时: 停掉其监听线程并清理引用 (仅当引用仍指向该窗口).
@@ -471,8 +478,6 @@ def main() -> None:
             win.events.closed += _on_closed
         except Exception as exc:  # noqa: BLE001
             _mlog(f"  bind login closed event error: {exc}")
-
-    _bind_login_close_cleanup(login_win_ref["win"])
 
     # 登录模式: open_login(mode) 记录意图, on_login_success 按模式落库
     pending_mode = {"mode": "relogin"}
@@ -494,7 +499,9 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001
             _mlog(f"  save_token ERROR: {exc}")
         try:
-            login_win().hide()
+            lw = login_win()
+            if lw is not None:
+                lw.hide()  # 懒创建后这里一定非 None, 兜底 None 防止已销毁场景报错
             _mlog("  login window hidden")
         except Exception as exc:  # noqa: BLE001
             _mlog(f"  hide ERROR: {exc}")
@@ -537,21 +544,23 @@ def main() -> None:
         threading.Timer(3.0, w.start).start()
 
     def _login_win_alive() -> bool:
+        win = login_win()
+        if win is None:  # 懒创建: 未创建过就不算存活
+            return False
         try:
-            return login_win() in webview.windows
+            return win in webview.windows
         except Exception:  # noqa: BLE001
             return False
 
     def open_login(mode: str = "relogin") -> None:
         """弹出独立登录窗口并开始监听 (欢迎页/设置页按钮). 单飞守卫: 已有登录流程时忽略."""
-        # 登录窗已被手动关闭 => 旧监听已失效: 先停旧线程再重建窗口.
-        # (修复: 依赖"线程存活"的单飞守卫会把死窗口场景永久拦截, 导致再次点击无响应)
-        if not _login_win_alive():
+        # 首次登录/上次登录窗已被手动关闭 => 懒创建/重建窗口, 再走下面的弹出逻辑
+        if login_win_ref["win"] is None or not _login_win_alive():
             w = watcher.get("ref")
             if isinstance(w, LoginWatcher):
                 w.stop()
             watcher["ref"] = None
-            _mlog("[main] login window gone -> recreate")
+            _mlog(f"[main] login window gone (existing={login_win_ref['win'] is not None}) -> recreate")
             pending_mode["mode"] = mode if mode in ("add", "relogin") else "relogin"
             _recreate_login_window()
             return
@@ -568,33 +577,48 @@ def main() -> None:
             lw.load_url(build_login_url())
         except Exception as exc:  # noqa: BLE001 窗口可能被用户手动关闭, 重建
             print(f"[main] login window reopen: {exc}", flush=True)
+            # 关掉失效窗口再重建, 否则 _recreate_login_window 会 destroy 一个新对象
+            try:
+                lw.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+            login_win_ref["win"] = None
             _recreate_login_window()
             return
         _start_watcher(lw)
 
     def _recreate_login_window() -> None:
-        """登录窗口被手动关闭后重建 (回调绑定新窗口)."""
+        """懒创建/重建登录窗口 (首次登录或窗被手动关闭后调用)."""
         w = watcher.get("ref")
         if isinstance(w, LoginWatcher):
             w.stop()
         old_win = login_win()
-        if pending_mode.get("mode") == "add":
-            clear_login_cookies(old_win)  # 同上: 重建前清会话, 保证可切换账号
-        try:
-            old_win.destroy()
-        except Exception:  # noqa: BLE001
-            pass
-        new_win = webview.create_window(
-            "GoGauge - OpenCode Go Login",
-            build_login_url(),
-            width=720,
-            height=640,
-            min_size=(560, 500),
-            background_color="#f7f6f4",
-        )
+        if old_win is not None:
+            if pending_mode.get("mode") == "add":
+                clear_login_cookies(old_win)  # 重建前清会话, 保证可切换账号
+            try:
+                old_win.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        new_win = _new_login_window(build_login_url())
         login_win_ref["win"] = new_win
         _bind_login_close_cleanup(new_win)
         _start_watcher(new_win)
+        try:
+            new_win.show()
+        except Exception as exc:  # noqa: BLE001 立即 show 可能尚未就绪, 由 shown 事件兜底
+            _mlog(f"  login window show ERROR: {exc}")
+
+    def _destroy_login_window() -> None:
+        """兼容旧调用: 关闭并解绑登录窗 (退出路径调用)."""
+        w = login_win()
+        if w is None:
+            return
+        try:
+            w.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+        login_win_ref["win"] = None
 
     api.set_login_callback(open_login)
     server.set_login_callback(open_login)  # /api/relogin 兼容 (浏览器环境/兜底)

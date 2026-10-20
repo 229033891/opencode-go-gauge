@@ -38,12 +38,14 @@
 - **Today's trend**: 24-hour input / output bar chart
 - **Usage stats**: token breakdown (input / output / reasoning / cache read / cache write / sessions), model usage donut + ranking, cost / requests / total tokens triple-line trend
 - **Session history**: per-session aggregation of requests / input / output / reasoning / total tokens / cost, paginated
-- **Usage records**: request-level detail with pagination and model filtering
-- **Built-in WebView login**: independent login window opens the opencode.ai console sign-in page, auto-captures session & workspace — no manual copy-paste
+- **Built-in WebView login**: independent login window opens the opencode.ai console sign-in page, auto-captures session & workspace — no manual copy-paste (the login window is created on first click, so cold start uses less memory)
 - **Window control**: custom titlebar with minimize / maximize / close, double-click titlebar to maximize, F11 fullscreen toggle
-- **Auto sync**: incremental sync (1/5/15/30 min) + sync range (30/60/90/180 days / All)
+- **Auto sync**: incremental sync (1/5/15/30 min) + sync range (30/60/90/180 days / All); paging stops as soon as no new records arrive, and sync is skipped while the window is hidden/minimized
 - **Dual themes**: light / dark toggle; bilingual UI (中文 / English)
 - **Local-first**: all data stays in local SQLite; credentials are only used to sync official APIs
+
+> The request-level detail table was removed from the UI. For per-request inspection use the CLI:
+> `python scripts/opencode_go_usage.py --from-db --usage --days 1`
 
 ## 🖥 Quick Start
 
@@ -91,8 +93,20 @@ git push origin release
 - **Official per-model limits**: parsed at runtime from the opencode.ai docs limit table (cached locally with an embedded snapshot fallback); monthly limits per model for Go / Go Plus — 5-hour = 20% and weekly = 50% of it; percentages are for planning only, the accounting applies per-model multipliers and `go/status` remains authoritative
 - **Total tokens** = input (incl. cache hits) + output + reasoning
 - **Cache hit rate** = hits / (hits + misses)
-- **Cost**: raw USD; CNY converted via open.er-api.com live FX rate (24h cache)
+- **Cost**: raw USD; CNY converted via open.er-api.com live FX rate (6h cache, refreshed in the background — never blocks a request)
 - **Detail range**: the official API only retains the last 30 days of request detail (quota windows are unaffected)
+
+## 📟 CLI: Per-Request Usage Query
+
+The UI keeps aggregated and session-level views. For per-request detail use the bundled script (standard library only, no GUI):
+
+```bash
+python scripts/opencode_go_usage.py --from-db                  # reuse the app's stored credential
+python scripts/opencode_go_usage.py --cookie "st_xxx" --usage --days 1
+python scripts/opencode_go_usage.py --login                    # first-time sign-in (needs pywebview)
+```
+
+Credential sources: `--cookie` / `OPENCODE_SESSION` env var / `--from-db` (read-only access to GoGauge's SQLite) / cached in `~/.opencode-go-gauge/session.json` after `--login`.
 
 ## 🔒 Privacy
 

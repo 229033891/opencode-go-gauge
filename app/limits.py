@@ -212,7 +212,11 @@ def _read_cache(cache: str, min_count: int = 3) -> Optional[dict[str, Any]]:
 
 
 def load_limits(force: bool = False) -> dict[str, Any]:
-    """返回 {"limits": {...}, "fetched": iso, "source": str}; 顺序 快照 <- 缓存 <- 在线解析."""
+    """返回 {"limits": {...}, "fetched": iso, "source": str}; 顺序 快照 <- 缓存 <- 在线解析.
+
+    磁盘缓存读取很快 (单个 ~10KB JSON), 调用方 server._build_model_quota 也带
+    8 秒结果缓存, 因此这里不再叠进程内缓存, 保持"二次调用走 cache"的原语义。
+    """
     cache = _cache_path()
     if not force:
         cached = _read_cache(cache)

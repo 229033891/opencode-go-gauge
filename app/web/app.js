@@ -1,8 +1,6 @@
 /* GoGauge - 4 页 (首页/用量统计/设置/关于) + 双主题 + 中英国际化 */
 "use strict";
-
 const $ = (id) => document.getElementById(id);
-
 /* ================= 国际化 ================= */
 const I18N = {
   zh: {
@@ -13,7 +11,7 @@ const I18N = {
     statsTitle: "用量统计", tokenBreakdown: "Token 构成",
     modelUsage: "模型用量", input: "输入", output: "输出", cost: "成本",
     usageTrend: "用量趋势", usageRecords: "使用记录", allModels: "全部模型",
-    recordsPage: "使用记录",
+    recordsPage: "会话用量",
     sessionUsage: "会话用量", colSession: "会话", colKey: "Key 名称", colLastUsed: "最后使用", colRequests: "请求/Token", unassigned: "未归属",
     accountOverview: "账户总览", costTrend7d: "7 日费用趋势对比",
     todayTotalReq: "今日总请求", todayTotalTokens: "今日总 TOKEN", todayTotalCost: "今日总费用", todayTotalInput: "今日总输入",
@@ -42,7 +40,7 @@ const I18N = {
     introText: "是一款本地优先的 OpenCode Go 用量面板：配额窗口、Token 构成、模型排行与使用记录整理在同一处，打开即见。所有数据仅保存在本地，登录凭证只用于同步官方接口。",
     aboutFeatures: "功能", feat1: "配额窗口实时监控（滚动 5 小时 / 每周 / 每月）",
     feat2: "今日用量与 24 小时趋势", feat3: "各模型 Token 消耗排行与用量趋势",
-    feat4: "详细使用记录分页浏览（10 条/页）", feat5: "自动同步数据，无需手动刷新",
+    feat4: "会话用量明细浏览（10 条/页，逐条请求明细由 CLI 脚本提供）", feat5: "自动同步数据，无需手动刷新",
     feat6: "模型额度规划：各模型用量 vs 官方额度（5 小时 / 周 / 月）",
     aboutLinks: "链接", aboutThanks: "致谢", thanksText: "数据提供",
     pageFoot: "{version} · GoGauge · 数据仅保存在本地 · 数据提供 OpenCode",
@@ -110,7 +108,7 @@ const I18N = {
     qpStatusNa: "不适用",
     qpKeyFilterColTip: "已按 Key 筛选用量；月额度剩余/请求估算与状态按账户额度计算会误导，故不显示",
     fullScreenOn: "已进入全屏，按 F11 退出", fullScreenOff: "已退出全屏",
-    navHome: "总览首页", navStats: "用量统计", navRecords: "使用记录",
+    navHome: "总览首页", navStats: "用量统计", navRecords: "会话用量",
     navQuota: "模型额度规划", navOverview: "账户总览", navSettings: "设置", navAbout: "关于",
     tbMinimize: "最小化", tbMaximize: "最大化", tbRestore: "还原", tbClose: "关闭",
     themeToggle: "切换主题",
@@ -152,7 +150,7 @@ const I18N = {
     introText: "is a local-first OpenCode Go usage dashboard: quota windows, token breakdown, model ranking and usage records in one place. All data stays on your machine; credentials are only used to sync official APIs.",
     aboutFeatures: "Features", feat1: "Quota window monitoring (5h rolling / weekly / monthly)",
     feat2: "Today's usage with 24-hour trend", feat3: "Per-model token ranking and usage trend",
-    feat4: "Paginated usage records (10 per page)", feat5: "Auto sync — no manual refresh needed",
+    feat4: "Paginated session usage (10 per page; per-request records live in the CLI script)", feat5: "Auto sync — no manual refresh needed",
     feat6: "Model quota planner: per-model usage vs official limits (5h / weekly / monthly)",
     aboutLinks: "Links", aboutThanks: "Thanks", thanksText: "Data provided by",
     pageFoot: "{version} · GoGauge · Local-only data · Data by OpenCode",
@@ -220,7 +218,7 @@ const I18N = {
     qpStatusNa: "N/A",
     qpKeyFilterColTip: "Usage is filtered by key; quota-left / request estimate and status would mislead against account limits, so they are hidden",
     fullScreenOn: "Fullscreen on — press F11 to exit", fullScreenOff: "Fullscreen off",
-    navHome: "Home", navStats: "Usage Stats", navRecords: "Records",
+    navHome: "Home", navStats: "Usage Stats", navRecords: "Sessions",
     navQuota: "Model Quota Planner", navOverview: "Accounts Overview", navSettings: "Settings", navAbout: "About",
     tbMinimize: "Minimize", tbMaximize: "Maximize", tbRestore: "Restore", tbClose: "Close",
     themeToggle: "Toggle theme",
@@ -228,7 +226,6 @@ const I18N = {
 };
 let lang = "zh";
 function t(key) { return (I18N[lang] && I18N[lang][key]) || I18N.zh[key] || key; }
-
 let state = {
   page: "home",
   range: "today",
@@ -241,16 +238,13 @@ let state = {
   syncTimer: null,
   quotaRetryTimer: null,
   ovRetryTimer: null,
-  records: { page: 1, pageSize: 7, total: 0, model: "" },
-  sessions: { page: 1, pageSize: 7, total: 0 },
+  sessions: { page: 1, pageSize: 7, total: 0 },  // 会话用量分页状态 (逐条使用记录页已移除)
   qp: { plan: "go", scope: "go", seq: 0, data: null, keyIds: [], showPrices: true, sort: { key: null, dir: "desc" }, filter: { text: "", status: "all" } },
   settings: { sync_interval_sec: 300, window_days: 60, auto_sync: true },
 };
-
 const COLOR = { input: "#4f8ef7", output: "#22c55e", reasoning: "#a78bfa", cache: "#06b6d4", cost: "#d97706" };
 const QUOTA_LABEL = { "5h Rolling": () => t("rolling"), "Weekly": () => t("weekly"), "Monthly": () => t("monthly") };
 const PLAN_BADGE = { lite: "GO", sub: "GO", byok: "BYOK" };
-
 /* ---------------- 格式化 ---------------- */
 function fmtTokens(n) {
   n = Number(n) || 0;
@@ -299,7 +293,6 @@ function fmtRelative(iso) {
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
-
 /* ---------------- API ---------------- */
 async function api(path, opts = {}) {
   const resp = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
@@ -310,7 +303,6 @@ async function api(path, opts = {}) {
   }
   return resp.json();
 }
-
 /* ---------------- 语言切换 ---------------- */
 function applyLang(l) {
   lang = l === "en" ? "en" : "zh";
@@ -340,11 +332,10 @@ function applyLang(l) {
   if (state.data) {
     renderAll(state.data);
     renderSettings();
-    loadRecords().catch(() => {});
+    if (state.page === "records") loadSessions().catch(() => {});
   }
   if (state.page === "quota") loadModelQuota().catch(() => {});
 }
-
 /* ---------------- 弹框 / Toast ---------------- */
 function showModal({ title = t("confirm"), message = "", okText = t("ok"), cancelText = t("cancel"), danger = false, onOk }) {
   const overlay = $("modal-overlay");
@@ -369,7 +360,6 @@ function toast(msg, type = "ok") {
   wrap.appendChild(el);
   setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 300); }, 3200);
 }
-
 /* ---------------- 标题栏 ---------------- */
 async function pywebviewApi() {
   try { if (window.pywebview && window.pywebview.api) return window.pywebview.api; } catch (e) { /* ignore */ }
@@ -380,20 +370,17 @@ function bindTitlebar() {
   $("tb-max").addEventListener("click", () => toggleMaximize());
   $("tb-close").addEventListener("click", async () => { const a = await pywebviewApi(); if (a) a.close(); });
   $("tb-theme").addEventListener("click", () => applyDarkMode(document.documentElement.dataset.theme !== "dark"));
-
   // 双击标题栏 (按钮除外): 最大化/还原, Windows 惯例
   document.querySelector(".tb").addEventListener("dblclick", (e) => {
     if (e.target.closest("button, a")) return;
     toggleMaximize();
   });
-
   // F11: 全屏切换
   document.addEventListener("keydown", (e) => {
     if (e.key !== "F11") return;
     e.preventDefault();
     toggleFullscreen();
   });
-
   /* 标题栏拖动 (自实现, 替代 pywebview easy_drag):
      easy_drag 的 JS 用 clientX 记起点、screenX 算增量 (DPI 缩放下两坐标系
      不同源), 后端 move() 再乘一次缩放, 高 DPI 屏幕拖动会漂移抽动.
@@ -435,17 +422,14 @@ function bindTitlebar() {
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
     flushDrag();  // 释放残留增量, 避免窗口停在半路
   });
-
   // 启动时同步一次最大化图标状态 (刷新/重载后恢复正确图标)
   pywebviewApi().then((a) => {
     if (a && a.is_maximized) a.is_maximized().then(setMaxIcon).catch(() => {});
   });
 }
-
 /* ---------------- 最大化 / 全屏 ---------------- */
 const SVG_MAX = '<svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="0.8"/></svg>';
 const SVG_RESTORE = '<svg viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="6.2" height="6.2" rx="0.8"/><path d="M4 3.5V2.8c0-.7.5-1.3 1.2-1.3h4c.7 0 1.3.6 1.3 1.3v4c0 .7-.6 1.2-1.3 1.2h-.7"/></svg>';
-
 function setMaxIcon(maxed) {
   const b = $("tb-max");
   if (!b) return;
@@ -453,7 +437,6 @@ function setMaxIcon(maxed) {
   b.innerHTML = maxed ? SVG_RESTORE : SVG_MAX;
   b.title = maxed ? t("tbRestore") : t("tbMaximize");
 }
-
 async function toggleMaximize() {
   const a = await pywebviewApi();
   if (!a || !a.toggle_maximize) return;  // 浏览器环境无窗口 API
@@ -461,14 +444,12 @@ async function toggleMaximize() {
   setMaxIcon(maxed);
   if (state.data) rerenderCharts();  // pywebview 不触发 window.resize, 显式重排图表
 }
-
 async function toggleFullscreen() {
   const a = await pywebviewApi();
   if (!a || !a.toggle_fullscreen) return;
   const on = await a.toggle_fullscreen();
   toast(on ? t("fullScreenOn") : t("fullScreenOff"));
 }
-
 /* ---------------- 主题 / 货币 ---------------- */
 function applyDarkMode(on) {
   state.darkMode = on;
@@ -491,10 +472,9 @@ function applyCurrency(cur) {
   renderOverview(state.data.totals);
   renderStatsTotal(state.data.totals);
   renderDetail6(state.data.totals);
-  loadRecords().catch(() => {});
+  if (state.page === "records") loadSessions().catch(() => {});
   if (state.page === "overview") loadOverview(true).catch(() => {});  // 总览页费用随货币即时换算
 }
-
 /* ---------------- 页面路由 ---------------- */
 function switchPage(page) {
   state.page = page;
@@ -504,10 +484,9 @@ function switchPage(page) {
   if (page === "home" || page === "stats") loadDashboard();
   if (page === "quota") loadModelQuota().catch(() => {});
   if (page === "overview") loadOverview().catch(() => {});
-  if (page === "records") { loadSessions().catch(() => {}); loadRecords().catch(() => {}); }
+  if (page === "records") loadSessions().catch(() => {});  // 会话用量页 (逐条使用记录已移除)
   if (page === "settings") renderSettings();
 }
-
 /* ---------------- 骨架屏 ---------------- */
 function renderSkeletons() {
   const sBlock = `<div class="ub skeleton"><div class="sk-line w40"></div><div class="sk-line w20 lg"></div><div class="sk-bar"></div><div class="sk-line w60"></div></div>`;
@@ -520,7 +499,6 @@ function renderSkeletons() {
   if (!$("stats-total-cards").innerHTML) $("stats-total-cards").innerHTML = sKpi.repeat(4);
   if (!$("stats-detail6").innerHTML) $("stats-detail6").innerHTML = `<div class="tc skeleton"><div class="sk-line w40"></div><div class="sk-line w50 lg"></div><div class="sk-line w30"></div></div>`.repeat(6);
 }
-
 /* ---------------- 数据加载 ---------------- */
 let loadSeq = 0;
 async function loadDashboard(quiet = false) {
@@ -539,7 +517,6 @@ async function loadDashboard(quiet = false) {
   }
 }
 function showLoading(show) { $("top-loading").hidden = !show; }
-
 /* ---------------- 首页: 用量块 ---------------- */
 function renderUsageBlocks(quota) {
   const row = $("usage-blocks");
@@ -573,7 +550,6 @@ function renderUsageBlocks(quota) {
       <div class="ub-meta"><span>${t("used")} ${b.used.toFixed(0)}%</span><span>${b.reset}</span></div>
     </div>`).join("");
 }
-
 /* ---------------- 首页: 用量概览 6 格 ---------------- */
 function renderOverview(totals) {
   const totalTokens = totals.total_input_tokens + totals.total_output_tokens + totals.total_reasoning_tokens;
@@ -588,7 +564,6 @@ function renderOverview(totals) {
   $("overview-grid").innerHTML = cards.map((c) => `
     <div class="card kpi ${c.cls}"><div class="kpi-l">${c.l}</div><div class="kpi-v">${c.v}</div><div class="kpi-s">${c.s}</div></div>`).join("");
 }
-
 /* ---------------- 首页: 今日趋势 24h ---------------- */
 let cToday = null;
 function chartToday(trend) {
@@ -618,7 +593,6 @@ function chartToday(trend) {
   });
   cToday.resize();
 }
-
 /* ---------------- 统计页: 4 总卡 + 6 明细 ---------------- */
 function renderStatsTotal(totals) {
   const totalTokens = totals.total_input_tokens + totals.total_output_tokens + totals.total_reasoning_tokens;
@@ -644,7 +618,6 @@ function renderDetail6(totals) {
   $("stats-detail6").innerHTML = cards.map((c) => `
     <div class="tc"><div class="tc-l">${c.l}</div><div class="tc-v">${c.v}</div><div class="tc-s">${c.s}</div></div>`).join("");
 }
-
 /* ---------------- 统计页: 模型用量 ---------------- */
 let cModel = null;
 function chartModel(models) {
@@ -679,7 +652,6 @@ function chartModel(models) {
     <span class="mr-sub">${fmtInt(m.request_count)} · ${t("hitRate")} ${m.hit_rate}%</span>
     <span class="mr-cost">${fmtMoney(m.total_cost_usd)}</span></div>`).join("");
 }
-
 /* ---------------- 统计页: 用量趋势 ---------------- */
 let cTrend = null;
 function chartTrend(trend) {
@@ -720,7 +692,6 @@ function chartTrend(trend) {
   });
   cTrend.resize();
 }
-
 /* ---------------- 模型额度规划 (/api/model-quota) ---------------- */
 async function loadModelQuota(refresh = false) {
   const seq = ++state.qp.seq;
@@ -759,7 +730,6 @@ async function loadModelQuota(refresh = false) {
     if (refresh && btn) { btn.disabled = false; btn.textContent = t("qpRefreshLimits"); }
   }
 }
-
 function renderKeyPills(keys) {
   const row = $("qp-keys");
   if (!row) return;
@@ -773,7 +743,6 @@ function renderKeyPills(keys) {
   row.innerHTML = html;
   row.querySelectorAll(".pill").forEach((b) => b.addEventListener("click", () => onKeyPillClick(b.dataset.v)));
 }
-
 function onKeyPillClick(id) {
   // id === "" 表示「全部」
   if (!id) {
@@ -786,7 +755,6 @@ function onKeyPillClick(id) {
   }
   loadModelQuota();
 }
-
 function qpFilterSummary() {
   const ids = state.qp.keyIds;
   if (!ids.length) return t("qpAllKeys");
@@ -799,7 +767,6 @@ function qpFilterSummary() {
   const head = ids.slice(0, 2).map(nameOf).join(" + ");
   return ids.length > 2 ? `${head} … (${ids.length})` : `${head} (${ids.length})`;
 }
-
 function qpCell(w, row, { muteAlarm = false } = {}) {
   if (!row || !row.limit_known) {
     return `<div class="qp-cell"><span class="qp-val">${fmtMoney(w ? w.cost_usd : 0)} / ${t("qpUnknown")}</span></div>`;
@@ -821,13 +788,11 @@ function qpCell(w, row, { muteAlarm = false } = {}) {
       <div class="qp-bar"><i style="width:${barW}%"></i></div>
       <span class="qp-pct">${pct == null ? "—" : pct.toFixed(0) + "%"}</span></div>`;
 }
-
 function qpBadge(status) {
   const label = status === "ok" ? t("stOk") : status === "warn" ? t("stWarn")
     : status === "idle" ? t("stIdle") : t("stDanger");
   return `<span class="qp-badge b-${escapeHtml(status)}">${label}</span>`;
 }
-
 function qpFmtPrice(v) {
   // 单价列: 去尾零更易扫读 ($4 / $0.2 / $0.834); 0 显示「免费」
   if (v == null) return "—";
@@ -835,7 +800,6 @@ function qpFmtPrice(v) {
   const digits = v < 0.01 ? 4 : (v < 1 ? 3 : 2);
   return "$" + Number(v.toFixed(digits));
 }
-
 function qpSortValue(m, key) {
   switch (key) {
     case "model": return `${m.model}`.toLowerCase();
@@ -853,7 +817,6 @@ function qpSortValue(m, key) {
     default: return 0;
   }
 }
-
 function qpVisibleModels(data) {
   const { text, status } = state.qp.filter;
   const needle = (text || "").trim().toLowerCase();
@@ -876,7 +839,6 @@ function qpVisibleModels(data) {
   }
   return rows;
 }
-
 function qpUpdateSortIcons() {
   const { key, dir } = state.qp.sort;
   document.querySelectorAll(".qp-tbl th[data-sort]").forEach((th) => {
@@ -884,7 +846,6 @@ function qpUpdateSortIcons() {
     if (th.dataset.sort === key) th.classList.add(dir === "asc" ? "sorted-asc" : "sorted-desc");
   });
 }
-
 function renderModelQuota(data) {
   if (!data) return;
   const meta = $("qp-meta");
@@ -959,7 +920,6 @@ function renderModelQuota(data) {
       <td class="num price-col">${coefTxt}</td></tr>`;
   }).join("");
 }
-
 /* ---------------- 会话用量 ---------------- */
 let sesSeq = 0;
 async function loadSessions() {
@@ -1007,50 +967,6 @@ function shortId(id) {
   const tail = s.slice(-6);
   return `${head}…${tail}`;
 }
-
-/* ---------------- 使用记录 ---------------- */
-let recSeq = 0;
-async function loadRecords() {
-  const seq = ++recSeq;
-  const body = $("records-body");
-  try {
-    const q = new URLSearchParams({ page: state.records.page, page_size: 7 });
-    if (state.records.model) q.set("model", state.records.model);
-    const data = await api(`/api/usage/records?${q}`);
-    if (seq !== recSeq) return; // 丢弃过期响应 (快速切页/翻页时旧请求)
-    state.records.total = data.total;
-    const sel = $("rec-model-filter");
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">' + t("allModels") + '</option>' + data.models.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
-    sel.value = state.records.model || cur || "";
-    $("rec-count").textContent = `${t("totalN")} ${fmtInt(data.total)} ${t("items")}`;
-    if (!data.records.length) {
-      body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">${t("noData")}</td></tr>`;
-    } else {
-      let html = data.records.map((r) => `
-        <tr><td class="key-name">${escapeHtml(r.key_name || "—")}</td>
-        <td>${fmtDateTime(r.created_at)}</td>
-        <td><span class="model-cell">${modelIcon(r.model)}${escapeHtml(r.model)}</span></td>
-        <td class="num">${fmtTokens(r.input_tokens)}</td>
-        <td class="num">${fmtTokens(r.output_tokens)}</td>
-        <td class="num">${fmtTokens(r.reasoning_tokens)}</td>
-        <td class="num">${fmtTokens(r.cache_read_tokens)}</td>
-        <td class="num">${fmtMoney(r.cost_usd)}</td></tr>`).join("");
-      // 固定 7 行, 不足补空行
-      if (data.records.length < 7) {
-        html += ('<tr>' + '<td>&nbsp;</td>'.repeat(8) + '</tr>').repeat(7 - data.records.length);
-      }
-      body.innerHTML = html;
-    }
-    const totalPages = Math.max(1, Math.ceil(data.total / 7));
-    $("rec-pager").textContent = `${t("pageOf")} ${state.records.page} ${t("ofPages")} ${totalPages}`;
-    $("pg-prev").disabled = state.records.page <= 1;
-    $("pg-next").disabled = state.records.page >= totalPages;
-  } catch (e) {
-    if (seq === recSeq) body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red);padding:24px">${t("loadFailed")}: ${escapeHtml(e.message)}</td></tr>`;
-  }
-}
-
 /* ---------------- 模型图标 ---------------- */
 function modelIcon(m) {
   const s = String(m || "").toLowerCase();
@@ -1066,7 +982,6 @@ function modelIcon(m) {
 function refreshIcons() {
   if (!document.getElementById("page-stats").hidden) chartModel(state.data?.models);
 }
-
 /* ---------------- 组装 ---------------- */
 function renderAll(data) {
   state.data = data;
@@ -1104,7 +1019,6 @@ function maskWs(data) {
   const ws = data?.quota?.workspace_id || "";
   return ws.length > 12 ? ws.slice(0, 8) + "…" : ws;
 }
-
 /* ---------------- 同步 ---------------- */
 async function startSync(mode) {
   $("tb-refresh").disabled = true;
@@ -1143,19 +1057,16 @@ function renderSettingsSyncProgress(progress) {
   $("set-sync-progress-desc").textContent = `${phase} · ${t("pageOf")} ${progress.page + 1}`;
   $("set-sync-progress-val").textContent = `${t("totalN")} ${fmtInt(progress.inserted)}`;
 }
-
 /* ---------------- 账户总览面板 (多账户聚合) ---------------- */
 let ovSeq = 0;
 let cOvTrendChart = null;
 const OV_COLORS = ["#7c5cf6", "#4f8ef7", "#22c55e", "#d97706", "#06b6d4", "#ec4899"];
-
 /* 开关控制侧边栏入口显隐; 关闭时若停留在总览页则退回首页 */
 function applyOverviewPanel(show) {
   const btn = document.getElementById("side-overview");
   if (btn) btn.hidden = !show;
   if (!show && state.page === "overview") switchPage("home");
 }
-
 async function loadOverview(quiet = false) {
   const seq = ++ovSeq;
   if (!quiet) {
@@ -1176,7 +1087,6 @@ async function loadOverview(quiet = false) {
     if (!quiet) toast(e.message || t("loadFailed"), "err");
   }
 }
-
 function renderAccountOverview(data) {
   const accounts = (data.accounts || []).map((a, i) => ({ ...a, color: OV_COLORS[i % OV_COLORS.length] }));
   // ---- 顶部汇总: 今日合计 ----
@@ -1197,16 +1107,13 @@ function renderAccountOverview(data) {
   ];
   $("ov-summary-cards").innerHTML = cards.map((c) => `
     <div class="card kpi ${c.cls}"><div class="kpi-l">${c.l}</div><div class="kpi-v">${c.v}</div></div>`).join("");
-
   // ---- 7 日费用趋势对比 ----
   chartOvTrend(accounts);
-
   // ---- 账号卡片 ----
   $("ov-accounts").innerHTML = accounts.length
     ? accounts.map((a) => renderAccountCard(a)).join("")
     : `<div class="card ov-acc"><div class="ov-quota-empty">${t("noUsers")}</div></div>`;
 }
-
 function renderAccountCard(a) {
   // 配额三窗口: 有缓存时展示, 缓存未就绪 (后台刷新中) 显示占位
   let quotaHtml;
@@ -1242,7 +1149,6 @@ function renderAccountCard(a) {
     </div>
   </div>`;
 }
-
 /* 24h 迷你趋势: 纯 SVG 折线 (无 Chart 实例, 轻量随卡片渲染) */
 function sparklineSvg(values, color) {
   const w = 120, h = 30, n = values.length;
@@ -1255,7 +1161,6 @@ function sparklineSvg(values, color) {
     <polyline points="0,${h} ${pts.join(" ")} ${w},${h}" fill="${color}" opacity="0.12" stroke="none"/>
   </svg>`;
 }
-
 /* 7 日费用对比: 全部账号合计为 总费用/请求/Token 三条线, 与用量趋势样式一致 */
 function chartOvTrend(accounts) {
   const canvas = $("ov-trend-chart");
@@ -1303,7 +1208,6 @@ function chartOvTrend(accounts) {
   });
   cOvTrendChart.resize();
 }
-
 /* ---------------- 设置页 ---------------- */
 async function renderSettings() {
   try {
@@ -1325,12 +1229,18 @@ function syncSettingsPills() {
   document.querySelectorAll("#set-interval-pills .pill").forEach((b) => b.classList.toggle("active", Number(b.dataset.v) === Number(s.sync_interval_sec)));
   document.querySelectorAll("#set-window-pills .pill").forEach((b) => b.classList.toggle("active", (s.window_days == null ? "all" : String(s.window_days)) === b.dataset.v));
 }
-
 /* ---------------- 多用户: 顶栏切换器 ---------------- */
-
+/* 文档不可见 (窗口最小化/切走) 时暂停定时器, 回收 CPU/网络;
+   恢复可见后立即补一次, 不用等下一个 tick. */
+let onVisibleResume = [];
+let pollRef = null;
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") return;  // 隐藏: 各 timer 自行跳过
+  onVisibleResume.forEach((fn) => fn());  // 恢复可见: 立即补一次
+});
 /* 登录流程期间的账户变化监视: 登录窗是独立窗口, 成功后的跨窗口通知
    (load_url 同URL跳过 / evaluate_js 时序) 均不可靠, 用短轮询兜底保证
-   账户列表/顶栏计数即时刷新. 5 分钟无变化自动停止. */
+   账户列表/顶栏计数即时刷新. 5 分钟无变化自动停止; 页面隐藏时暂停. */
 let loginWatchTimer = null;
 function startLoginWatch() {
   stopLoginWatch();
@@ -1346,18 +1256,22 @@ function startLoginWatch() {
         stopLoginWatch();
         await loadDashboard();
         if (state.page === "settings") renderSettings().catch(() => {});
-        else if (state.page === "records") { loadSessions().catch(() => {}); loadRecords().catch(() => {}); }
+        else if (state.page === "records") loadSessions().catch(() => {});
         if (state.page === "overview") loadOverview(true).catch(() => {});
       }
     } catch (e) { /* ignore */ }
   };
+  onVisibleResume.push(poll);
+  pollRef = poll;
   poll();
-  loginWatchTimer = setInterval(poll, 2000);
+  loginWatchTimer = setInterval(() => {
+    if (document.visibilityState !== "hidden") poll();
+  }, 2000);
 }
 function stopLoginWatch() {
   if (loginWatchTimer) { clearInterval(loginWatchTimer); loginWatchTimer = null; }
+  if (pollRef) { onVisibleResume = onVisibleResume.filter((fn) => fn !== pollRef); pollRef = null; }
 }
-
 async function toggleUserMenu(force) {
   const menu = $("user-menu");
   if (!menu) return;
@@ -1390,7 +1304,7 @@ function renderUserMenu(accounts, activeId) {
         toast(t("switchedAccount"));
         await loadDashboard();
         if (state.page === "settings") renderSettings().catch(() => {});
-        else if (state.page === "records") { loadSessions().catch(() => {}); loadRecords().catch(() => {}); }
+        else if (state.page === "records") loadSessions().catch(() => {});
         if (state.page === "overview") loadOverview(true).catch(() => {});
       } catch (e) { toast(e.message || t("loadFailed"), "err"); }
     });
@@ -1398,7 +1312,6 @@ function renderUserMenu(accounts, activeId) {
   const mg = $("um-manage");
   if (mg) mg.addEventListener("click", () => { toggleUserMenu(false); switchPage("settings"); });
 }
-
 /* ---------------- 多用户: 设置页列表 ---------------- */
 async function fetchAccounts() {
   const r = await api("/api/accounts");
@@ -1516,7 +1429,6 @@ async function onUserRowAction(id, act) {
     });
   }
 }
-
 /* ---------------- 登录状态 ---------------- */
 let loginPollTimer = null;
 function showLoginOverlay(show) {
@@ -1524,8 +1436,10 @@ function showLoginOverlay(show) {
   $("login-overlay").hidden = !show;
   if (show) {
     // 欢迎页显示时轮询登录状态: 独立登录窗登录成功后自动进入面板
+    // (登录期间主窗常被登录窗盖住而进入 hidden, 也要继续保持发现速度)
     if (loginPollTimer) clearInterval(loginPollTimer);
     loginPollTimer = setInterval(async () => {
+      if (document.visibilityState === "hidden") return;
       try {
         const st = await api("/api/state");
         if (st.logged_in) {
@@ -1552,7 +1466,6 @@ async function checkState() {
     await loadDashboard();
   } catch (e) { console.error("state check failed", e); }
 }
-
 /* 登录成功通知 (后端 evaluate_js 触发, 见 main.on_login_success):
    就地刷新数据/顶栏/账户列表, 不依赖整页重载 (同 URL load_url 可能被跳过) */
 window.gousageOnLoginSuccess = async function () {
@@ -1562,13 +1475,11 @@ window.gousageOnLoginSuccess = async function () {
   } catch (e) { /* ignore */ }
   loadDashboard().catch(() => {});
   if (state.page === "settings") renderSettings().catch(() => {});
-  else if (state.page === "records") { loadSessions().catch(() => {}); loadRecords().catch(() => {}); }
+  else if (state.page === "records") loadSessions().catch(() => {});
 };
-
 /* ---------------- 事件绑定 ---------------- */
 function bindEvents() {
   document.querySelectorAll(".side-item").forEach((btn) => btn.addEventListener("click", () => switchPage(btn.dataset.page)));
-
   document.querySelectorAll("#home-pills .pill").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll("#home-pills .pill").forEach((x) => x.classList.remove("active"));
     b.classList.add("active"); state.range = b.dataset.r; loadDashboard();
@@ -1587,12 +1498,8 @@ function bindEvents() {
   $("btn-full-sync").addEventListener("click", () => {
     showModal({ title: t("fullSync"), message: t("fullSyncConfirm"), okText: t("startSync"), onOk: () => startSync("full") });
   });
-  $("pg-prev").addEventListener("click", () => { if (state.records.page > 1) { state.records.page--; loadRecords(); } });
-  $("pg-next").addEventListener("click", () => { state.records.page++; loadRecords(); });
   $("ses-prev").addEventListener("click", () => { if (state.sessions.page > 1) { state.sessions.page--; loadSessions(); } });
   $("ses-next").addEventListener("click", () => { state.sessions.page++; loadSessions(); });
-  $("rec-model-filter").addEventListener("change", (e) => { state.records.model = e.target.value; state.records.page = 1; loadRecords(); });
-
   // 模型额度规划: 计划切换 + 官方额度表刷新
   document.querySelectorAll("#qp-plan .pill").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll("#qp-plan .pill").forEach((x) => x.classList.remove("active"));
@@ -1600,7 +1507,6 @@ function bindEvents() {
     loadModelQuota();
   }));
   $("qp-refresh").addEventListener("click", () => loadModelQuota(true));
-
   // 表头点击排序 (升/降切换)
   document.querySelectorAll(".qp-tbl th[data-sort]").forEach((th) => th.addEventListener("click", () => {
     const key = th.dataset.sort;
@@ -1630,7 +1536,6 @@ function bindEvents() {
     document.querySelectorAll("#qp-scope .pill").forEach((x) => x.classList.toggle("active", x === b));
     loadModelQuota();
   }));
-
   // 检查更新: 有新版 -> 弹窗 -> 打开浏览器前往 GitHub Releases 下载
   $("btn-check-update").addEventListener("click", async () => {
     const btn = $("btn-check-update");
@@ -1661,7 +1566,6 @@ function bindEvents() {
       btn.textContent = prevText;
     }
   });
-
   document.querySelectorAll("#set-interval-pills .pill").forEach((b) => b.addEventListener("click", async () => {
     await api("/api/settings", { method: "PUT", body: JSON.stringify({ sync_interval_sec: Number(b.dataset.v) }) });
     state.settings = await api("/api/settings");
@@ -1689,7 +1593,6 @@ function bindEvents() {
     applyOverviewPanel(e.target.checked);
   });
   // 账户操作已合并进「OpenCode 账户」卡片内的账号行 (relogin/logout 为行级动作)
-
   // 多用户: 顶栏切换器 + 设置页账户列表
   $("tb-login").addEventListener("click", () => toggleUserMenu());
   document.addEventListener("click", (e) => {
@@ -1727,7 +1630,6 @@ function bindEvents() {
   });
   bindTitlebar();
 }
-
 /* ---------------- 自动同步 ---------------- */
 let autoSyncTimer = null;
 function restartAutoSync() {
@@ -1735,11 +1637,12 @@ function restartAutoSync() {
   if (state.settings.auto_sync === false) return;
   const sec = Math.max(30, Number(state.settings?.sync_interval_sec) || 300) * 1000;
   autoSyncTimer = setInterval(() => {
+    // 窗口隐藏 (最小化/后台) 时不同步: 等用户回来看时再由 visibilitychange 补拉
+    if (document.visibilityState === "hidden") return;
     const prog = state.data && state.data.progress;
     if (!prog || !prog.running) startSync("incremental");
   }, sec);
 }
-
 /* ---------------- 图表辅助 ---------------- */
 function cssVar(name) {
   return getComputedStyle(document.body).getPropertyValue(name).trim() || "#8a94a8";
@@ -1752,7 +1655,6 @@ function rerenderCharts() {
     chartTrend(state.data.trend);
   }
 }
-
 /* 窗口尺寸变化: 长防抖(250ms)后执行一次轻量 chart.resize()
    (只处理可见页图表 — hidden 页面容器尺寸为 0, resize() 会死循环卡死) */
 function safeResize(chart) {
@@ -1772,7 +1674,6 @@ window.addEventListener("resize", () => {
     if (!document.getElementById("page-overview").hidden) safeResize(cOvTrendChart);
   }, 250);
 });
-
 /* ---------------- 启动 ---------------- */
 let APP_VERSION = "";  // 后端版本号 (app/__init__.py), 唯一版本源
 (async function init() {

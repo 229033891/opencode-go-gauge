@@ -18,6 +18,21 @@ from typing import Any, Optional
 
 _DB: Optional[sqlite3.Connection] = None
 
+# 进程内"数据版本号": 任何用量记录写入/删除都会递增, 供上层缓存 (如
+# server._model_quota_cache) 作为失效键, 不依赖 usage_sync_state 行是否存在.
+_DATA_VERSION = 0
+
+
+def data_version() -> int:
+    """当前进程内用量数据的版本号 (写入/删除即递增)."""
+    return _DATA_VERSION
+
+
+def _bump_data_version() -> int:
+    global _DATA_VERSION
+    _DATA_VERSION += 1
+    return _DATA_VERSION
+
 
 def _default_data_dir() -> str:
     if os.environ.get("GOUSAGE_DATA"):
@@ -469,6 +484,7 @@ def delete_account(account_id: int) -> int:
             _write_payload(conn, data)
             conn.commit()
     conn.commit()
+    _bump_data_version()  # 该账号的用量记录已删除
     return remaining
 
 
@@ -491,6 +507,7 @@ def clear_account() -> None:
         (aid,),
     )
     conn.commit()
+    _bump_data_version()  # 退出登录会删除该账号用量记录
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +559,7 @@ def insert_usage_records(records: list[dict[str, Any]], account_id: Optional[int
             if not existed:
                 inserted += 1
         conn.commit()
+        _bump_data_version()
     except Exception:
         conn.rollback()
         raise
@@ -630,6 +648,7 @@ def prune_old_records(window_days: int | None, account_id: Optional[int] = None)
         (aid, f"-{window_days} days"),
     )
     get_db().commit()
+    _bump_data_version()
     return cur.rowcount
 
 

@@ -57,18 +57,21 @@ _sync_state: dict[str, Any] = {
 }
 _quota_cache: dict[int, dict[str, Any]] = {}  # {account_id: {"at": float, "data": ...}}
 _quota_refreshing: set[int] = set()  # 防重入: 同一账号同一时刻只允许一个 quota 刷新线程
+_quota_lock = threading.Lock()  # 保护 _quota_cache / _quota_refreshing (HTTP 线程池并发访问)
+_exchange_lock = threading.Lock()
 _exchange_cache: dict[str, Any] = {"at": 0.0, "usd_cny": 7.2}
 _EXCHANGE_TTL = 6 * 3600  # 汇率缓存 6 小时
 _DEFAULT_USD_CNY = 7.2
+_exchange_thread: Optional[threading.Thread] = None  # 后台刷新线程 (同一时刻最多一个)
+_MODEL_QUOTA_CACHE_TTL = 8.0  # 分模型额度聚合结果缓存秒数 (同步/切换账号即时失效)
+_model_quota_cache: dict[int, tuple[Any, ...]] = {}  # {db.data_version(): (plan, scope, keys, at, data)}
 
 
-def _fetch_usd_cny() -> float:
-    """从 open.er-api.com 获取 USD→CNY 汇率, 失败时返回上次缓存/默认值."""
-    now = time.time()
-    if now - _exchange_cache["at"] < _EXCHANGE_TTL:
-        return _exchange_cache["usd_cny"]
+def _fetch_usd_cny_remote() -> Optional[float]:
+    """真正请求 open.er-api.com; 失败返回 None (由调用方决定是否沿用旧值)."""
     try:
         import urllib.request
+
         req = urllib.request.Request(
             "https://open.er-api.com/v6/latest/USD",
             headers={"User-Agent": "GoGauge/1.0", "Accept": "application/json"},
@@ -76,11 +79,39 @@ def _fetch_usd_cny() -> float:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
         rate = float(data.get("rates", {}).get("CNY") or 0)
-        if rate > 0:
-            _exchange_cache.update(at=now, usd_cny=rate)
+        return rate if rate > 0 else None
     except Exception:  # noqa: BLE001 网络失败时保留旧值
-        _exchange_cache["at"] = now
-    return _exchange_cache["usd_cny"]
+        return None
+
+
+def _fetch_usd_cny() -> float:
+    """返回 USD→CNY 汇率 (永不在请求路径上阻塞网络).
+
+    缓存过期时只启动一个后台线程去刷新, 本次调用立刻返回旧值;
+    刷新失败也记为已尝试 (写入 at), 避免每个请求都重复拉线程。
+    """
+    global _exchange_thread
+    now = time.time()
+    with _exchange_lock:
+        if now - _exchange_cache["at"] < _EXCHANGE_TTL:
+            return _exchange_cache["usd_cny"]
+        started = _exchange_thread is not None and _exchange_thread.is_alive()
+        cached = _exchange_cache["usd_cny"]
+        if not started:  # 占位: 同一时刻只允许一个刷新线程
+            _exchange_thread = threading.Thread(
+                target=_refresh_usd_cny_worker, daemon=True, name="gousage-fx"
+            )
+            _exchange_thread.start()
+    return cached
+
+
+def _refresh_usd_cny_worker() -> None:
+    """后台刷新汇率: 成功写入新值, 失败也记录 at 防止每个请求重复拉线程."""
+    rate = _fetch_usd_cny_remote()
+    with _exchange_lock:
+        _exchange_cache["at"] = time.time()
+        if rate:
+            _exchange_cache["usd_cny"] = rate
 
 
 def _sync_progress_snapshot() -> dict[str, Any]:
@@ -169,22 +200,55 @@ def _current_quota() -> tuple[Optional[int], dict[str, Any], dict[str, Any]]:
 
 
 def _build_model_quota(query: dict[str, list[str]]) -> dict[str, Any]:
-    """分模型 用量 vs 共享额度池 清单.
+    """分模型 用量 vs 共享额度池 清单 (带进程内短 TTL 结果缓存).
 
-    每行: 模型 + 5h/周/月 {零售费用, 对共享池的估算占用, 占池上限%} + 请求数与 token,
-    用于"这个模型在吃多少共享池, 该不该切模型"的规划。
+    同一筛选条件在短时间内的重复请求 (切页/切语言/币种后的重渲染) 直接命中缓存,
+    避免每次重跑 3 个时间窗 × 全库聚合; 数据版本 (db.data_version) 变化即失效。
     """
     plan = (query.get("plan", ["go"])[0] or "go").lower()
     if plan not in ("go", "plus"):
         plan = "go"
     refresh_limits = (query.get("refresh_limits", ["0"])[0] or "0") == "1"
-    # key_ids: 逗号分隔; 空串/缺省 = 全部 (不筛 Key)
     raw_keys = (query.get("key_ids", [""])[0] or "").strip()
     key_ids = [p.strip() for p in raw_keys.split(",") if p.strip()] if raw_keys else []
-    # scope: go (仅 Go 套餐用量, 默认) / all (全部产品线, 含免费模型)
     scope = (query.get("scope", ["go"])[0] or "go").lower()
     if scope not in ("go", "all"):
         scope = "go"
+
+    if not refresh_limits:
+        now = time.time()
+        # 连取两次: 第一次读缓存, 版本变了 (期间有写入) 则丢弃旧值再算
+        for _ in range(2):
+            version = db.data_version()
+            cached = _model_quota_cache.get(version)
+            if cached and cached[0] == plan and cached[1] == scope \
+                    and cached[2] == tuple(sorted(key_ids)) and now - cached[3] < _MODEL_QUOTA_CACHE_TTL:
+                return cached[4]
+            _model_quota_cache.pop(version, None)
+        data = _compute_model_quota(plan, scope, key_ids, refresh_limits)
+        version = db.data_version()
+        _model_quota_cache.clear()
+        _model_quota_cache[version] = (plan, scope, tuple(sorted(key_ids)), time.time(), data)
+        return data
+
+    data = _compute_model_quota(plan, scope, key_ids, refresh_limits)
+    invalidate_model_quota_cache()  # 强制刷新 (新限额表) 后丢弃旧缓存
+    return data
+
+
+def invalidate_model_quota_cache() -> None:
+    """写入账号/同步状态变化后调用: 丢弃分模型额度聚合缓存."""
+    _model_quota_cache.clear()
+
+
+def _compute_model_quota(
+    plan: str, scope: str, key_ids: list[str], refresh_limits: bool
+) -> dict[str, Any]:
+    """分模型 用量 vs 共享额度池 清单.
+
+    每行: 模型 + 5h/周/月 {零售费用, 对共享池的估算占用, 占池上限%} + 请求数与 token,
+    用于"这个模型在吃多少共享池, 该不该切模型"的规划。
+    """
     products = ["go"] if scope == "go" else None
 
     doc = limits.load_limits(force=refresh_limits)
@@ -381,15 +445,27 @@ def _display_key_name(kid: str, names: dict[str, str]) -> str:
 # 同步执行
 # ---------------------------------------------------------------------------
 
+def _quota_slot(account_id: int) -> dict[str, Any]:
+    slot = _quota_cache.get(account_id)
+    if slot is None:
+        slot = {"at": 0.0, "data": None}
+        _quota_cache[account_id] = slot
+    return slot
+
+
 def _fetch_quota_with_cache(account_id: int, token: str, workspace_hint: str) -> dict[str, Any]:
-    slot = _quota_cache.setdefault(account_id, {"at": 0.0, "data": None})
-    now = time.time()
-    if slot["data"] and now - slot["at"] < QUOTA_CACHE_TTL:
-        return slot["data"]
+    with _quota_lock:
+        slot = _quota_slot(account_id)
+        now = time.time()
+        if slot["data"] and now - slot["at"] < QUOTA_CACHE_TTL:
+            return slot["data"]
     result = fetch_quota(token, workspace_hint)
-    slot["at"] = now
-    slot["data"] = result.to_dict()
-    return slot["data"]
+    data = result.to_dict()
+    with _quota_lock:
+        slot = _quota_slot(account_id)
+        slot["at"] = time.time()
+        slot["data"] = data
+    return data
 
 
 def _ensure_quota_async(account_id: Optional[int] = None) -> None:
@@ -400,16 +476,17 @@ def _ensure_quota_async(account_id: Optional[int] = None) -> None:
     aid = account_id or db.get_active_account_id()
     if not aid:
         return
-    slot = _quota_cache.get(aid)
     now = time.time()
-    if slot and slot["data"] and now - slot["at"] < QUOTA_CACHE_TTL:
-        return
-    if aid in _quota_refreshing:
-        return  # 该账号已有刷新线程在跑
-    token, workspace_hint = db.get_account_credentials(aid)
-    if not token:
-        return
-    _quota_refreshing.add(aid)
+    with _quota_lock:
+        slot = _quota_cache.get(aid)
+        if slot and slot["data"] and now - slot["at"] < QUOTA_CACHE_TTL:
+            return
+        if aid in _quota_refreshing:
+            return  # 该账号已有刷新线程在跑 (单飞, 并发请求不会重复起线程)
+        token, workspace_hint = db.get_account_credentials(aid)
+        if not token:
+            return
+        _quota_refreshing.add(aid)
 
     def worker() -> None:
         # fetch_quota 内部已捕获全部异常并返回 success=False 的结果, 不会向上抛;
@@ -417,7 +494,8 @@ def _ensure_quota_async(account_id: Optional[int] = None) -> None:
         try:
             _fetch_quota_with_cache(aid, token, workspace_hint)
         finally:
-            _quota_refreshing.discard(aid)
+            with _quota_lock:
+                _quota_refreshing.discard(aid)
 
     threading.Thread(target=worker, daemon=True, name="gousage-quota").start()
 
@@ -526,13 +604,16 @@ def _sync_one_account(
             else:
                 empty_pages += 1
 
+            # 增量模式: 首页没有新数据说明已是最新, 立即停止 (不再空翻页);
+            # 有新增则继续翻到连续两页无新增为止, 覆盖同一时间窗内的历史补录
+            if mode == "incremental" and (
+                (page == 1 and total_inserted == 0) or empty_pages >= 2
+            ):
+                break
             cursor = usage_page.next_cursor
             if not cursor:
                 break  # 已到最早一条
             if window_boundary_reached:
-                break
-            # 增量模式: 连续两页没有新数据 -> 停止
-            if mode == "incremental" and empty_pages >= 2:
                 break
 
         # 按同步范围裁剪窗口外记录 (与本次新增数独立)
@@ -552,9 +633,11 @@ def _sync_one_account(
         if failed_pages:
             msg = "完成, 但翻页中断 (数据不完整, 可再次全量同步补全)"
             db.update_sync_state("partial", msg, total_inserted, account_id)
+            invalidate_model_quota_cache()  # 新数据落库 -> 分模型聚合缓存失效
             return {"ok": True, "partial": True, "failed_pages": failed_pages,
                     "inserted": total_inserted, "pages": page}
         db.update_sync_state("ok", None, total_inserted, account_id)
+        invalidate_model_quota_cache()  # 新数据落库 -> 分模型聚合缓存失效
         return {"ok": True, "inserted": total_inserted, "pages": page,
                 "retention_days": retention_days}
     except Exception as exc:  # noqa: BLE001
@@ -758,7 +841,8 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
         # quota 使用缓存 (按账号分槽), 过期时后台刷新, 不阻塞 dashboard 响应
         active_id = db.get_active_account_id()
         _ensure_quota_async(active_id)
-        slot = _quota_cache.get(active_id) or {}
+        with _quota_lock:
+            slot = _quota_cache.get(active_id) or {}
         quota = slot.get("data") if token else None
         account = db.get_account()
         _json_response(
@@ -790,7 +874,9 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
         aid = db.get_active_account_id()
         db.clear_account()
         if aid:
-            _quota_cache.pop(aid, None)
+            with _quota_lock:
+                _quota_cache.pop(aid, None)
+        invalidate_model_quota_cache()
         _json_response(handler, {"ok": True})
         return
 
@@ -817,14 +903,17 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
         # 账户总览面板: 仅返回已登录账号 (退出登录即移除本地数据, 未登录账号无展示意义)
         active_id = db.get_active_account_id()
         accounts: list[dict[str, Any]] = []
-        for acc in db.list_accounts():
+        fx_rate = _fetch_usd_cny()  # 读缓存 (过期则后台刷新), 不在请求路径上等网络
+        accounts_list = db.list_accounts()
+        for acc in accounts_list:
             if not acc["has_token"]:
                 continue
             aid = acc["id"]
             # 过期配额后台刷新 (不阻塞响应), 本次先返回缓存值
             _ensure_quota_async(aid)
-            slot = _quota_cache.get(aid)
-            quota = slot.get("data") if slot else None
+            with _quota_lock:
+                slot = _quota_cache.get(aid)
+                quota = slot.get("data") if slot else None
             sync_state = db.get_sync_state(aid)
             accounts.append(
                 {
@@ -846,7 +935,7 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
                 "ok": True,
                 "accounts": accounts,
                 "active_id": active_id,
-                "exchange_rate": {"usd_cny": _fetch_usd_cny(), "currency": "CNY"},
+                "exchange_rate": {"usd_cny": fx_rate, "currency": "CNY"},
                 "server_time": time.strftime("%Y-%m-%d %H:%M:%S"),
             },
         )
@@ -877,6 +966,7 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
                 _json_response(handler, {"ok": False, "error": "该账号未登录"}, 400)
                 return
             db.set_active_account(aid)
+            invalidate_model_quota_cache()  # 账号变了 -> 分模型聚合缓存失效
             _json_response(handler, {"ok": True, "active_id": aid})
             return
 
@@ -900,7 +990,9 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
             if remaining < 0:
                 _json_response(handler, {"ok": False, "error": "无效账号 id"}, 400)
                 return
-            _quota_cache.pop(aid, None)  # 清理该账号的配额缓存槽
+            with _quota_lock:
+                _quota_cache.pop(aid, None)  # 清理该账号的配额缓存槽
+            invalidate_model_quota_cache()
             _json_response(handler, {"ok": True, "remaining": remaining})
             return
 
@@ -921,38 +1013,6 @@ def _handle_api(handler: BaseHTTPRequestHandler, path: str, query: dict[str, lis
 
     if route == "/api/go-raw-status" and method == "GET":
         _json_response(handler, _build_go_raw_status())
-        return
-
-    if route == "/api/usage/records" and method == "GET":
-        try:
-            page = max(1, int(query.get("page", ["1"])[0]))
-        except ValueError:
-            page = 1
-        try:
-            page_size = max(1, min(int(query.get("page_size", ["50"])[0]), 100))
-        except ValueError:
-            page_size = 50
-        model = query.get("model", [""])[0] or None
-        days_raw = query.get("days", [""])[0]
-        try:
-            days = max(1, min(int(days_raw), 365)) if days_raw else None
-        except ValueError:
-            days = None
-        records, total = db.usage_records_page(page, page_size, model, days)
-        key_names = db.get_key_names()
-        for rec in records:
-            rec["key_name"] = key_names.get(rec.get("key_id") or "", "")
-        _json_response(
-            handler,
-            {
-                "records": records,
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "models": db.list_models(),
-                "filter": {"model": model, "days": days},
-            },
-        )
         return
 
     if route == "/api/usage/sessions" and method == "GET":
